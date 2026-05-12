@@ -2,6 +2,7 @@
 import pygame, sys, os, json, random, math, itertools, time, hashlib, threading
 sys.path.insert(0, "/home/davidprosek/Downloads/Havirov-Coin-master")
 from miner import CPUMiner
+from network import NetworkClient, get_random_ship_name
 pygame.init()
 
 SCREEN_WIDTH = 1024
@@ -380,7 +381,7 @@ class Ship:
         self.level = 1
         self.xp = 0
         self.xp_to_level = 100
-        self.name = "Havirov Ranger"
+        self.name = get_random_ship_name()
         self.thrust_power = 0.08
         self.max_speed = 4.0
         self.rotation_speed = 0.05
@@ -582,6 +583,9 @@ class SpaceRangersGame:
         self.cpuminer = None
         self.mining_thread_ref = None
         self.mining_active = False
+        self.network = None
+        self.multiplayer = False
+        self.remote_players = {}
         self.miner_dir = "/home/davidprosek/Downloads/Havirov-Coin-master"
         self.mining_stats = {
             "hash_count": 0,
@@ -726,6 +730,8 @@ class SpaceRangersGame:
                 self.handle_mining_log_events(event)
             elif self.state == "MINING":
                 self.handle_mining_events(event)
+            elif self.state == "MULTIPLAYER":
+                self.handle_multiplayer_events(event)
 
     def handle_mouse_click(self, event):
         if event.button == 1:
@@ -771,12 +777,15 @@ class SpaceRangersGame:
             elif event.key == pygame.K_4:
                 self.state = "GAME"
                 self.show_message("Stisknete K pro start miningu!", 120)
+            elif event.key == pygame.K_5:
+                self.state = "MULTIPLAYER"
             elif event.key == pygame.K_ESCAPE:
                 self.running = False
 
     def handle_game_events(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                self.disconnect_multiplayer()
                 self.state = "MENU"
             elif event.key == pygame.K_m:
                 self.state = "MAP"
@@ -985,9 +994,87 @@ class SpaceRangersGame:
             if event.key == pygame.K_ESCAPE:
                 self.state = "GAME"
             elif event.key == pygame.K_l:
-                # Refresh the log
                 pass
     
+    def handle_multiplayer_events(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.state = "MENU"
+            elif event.key == pygame.K_1:
+                self.host_game()
+            elif event.key == pygame.K_2:
+                self.join_game()
+
+    def disconnect_multiplayer(self):
+        if self.network:
+            self.network.disconnect()
+            self.network = None
+        self.multiplayer = False
+        self.remote_players.clear()
+
+    def host_game(self):
+        """Hostovat hru - spustit server + pripojit se"""
+        import subprocess
+        self.show_message("Spoustim server...")
+        import threading as _th
+        def run_server():
+            try:
+                from server import GameServer
+                srv = GameServer()
+                srv.start()
+            except:
+                pass
+        t = _th.Thread(target=run_server, daemon=True)
+        t.start()
+        import time
+        time.sleep(0.5)
+        self.connect_to_server("127.0.0.1")
+
+    def join_game(self):
+        self.state = "MENU"
+        print("Zadej IP serveru (napr. 192.168.1.100): ", end="")
+        try:
+            ip = input().strip()
+            if ip:
+                self.connect_to_server(ip)
+            else:
+                self.show_message("Neplatna IP adresa!", 90)
+        except:
+            self.show_message("Chyba pri zadavani IP!", 90)
+
+    def connect_to_server(self, ip):
+        self.network = NetworkClient()
+        success, result = self.network.connect(ip, 5555)
+        if success:
+            self.multiplayer = True
+            self.player_ship.x = result.get("x", self.player_ship.x)
+            self.player_ship.y = result.get("y", self.player_ship.y)
+            self.player_ship.name = self.network.name
+            self.state = "GAME"
+            self.show_message(f"Pripojen k serveru! ID: {self.network.player_id}, Lod: {self.network.name}", 180)
+        else:
+            self.network = None
+            self.show_message(f"Chyba: {result}", 180)
+            self.state = "MULTIPLAYER"
+
+    def draw_multiplayer_menu(self):
+        self.screen.fill(BLACK)
+        title = self.font_large.render("MULTIPLAYER", True, BRIGHT_YELLOW)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 150))
+        subtitle = self.font_medium.render("Hrajte s ostatnimi hraci po siti!", True, CYAN)
+        self.screen.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 200))
+        options = [
+            ("[1] Hostovat hru", "Spustit server a cekat na hrace - port 5555"),
+            ("[2] Pripojit se", "Zadat IP serveru a pripojit se"),
+            ("[ESC] Zpet", "Navrat do hlavniho menu")
+        ]
+        for i, (text, desc) in enumerate(options):
+            y = 300 + i * 60
+            rendered = self.font_medium.render(text, True, WHITE)
+            self.screen.blit(rendered, (SCREEN_WIDTH // 2 - 150, y))
+            desc_text = self.font_tiny.render(desc, True, LIGHT_GRAY)
+            self.screen.blit(desc_text, (SCREEN_WIDTH // 2 - 150, y + 25))
+
     def start_mining(self):
         """Start real mining using Havirov-Coin CPUMiner"""
         try:
@@ -1231,6 +1318,37 @@ class SpaceRangersGame:
         now = time.time()
         self.floating_items = [it for it in self.floating_items if now - it["time"] < 300]
 
+        if self.multiplayer:
+            if self.network and self.network.connected:
+                s = self.player_ship
+                self.network.send_state(s.x, s.y, s.vx, s.vy, s.direction, s.hp, s.shield)
+                remote = self.network.get_remote_players()
+                for pid, rp in remote.items():
+                    if pid not in self.remote_players:
+                        self.remote_players[pid] = rp
+                dead_pids = [pid for pid in self.remote_players if pid not in remote]
+                for pid in dead_pids:
+                    self.remote_players.pop(pid, None)
+                for pid, rp in remote.items():
+                    self.remote_players[pid] = rp
+                for etype, data in self.network.get_events():
+                    if etype == "damage":
+                        self.player_ship.hp = data.get("hp", self.player_ship.hp)
+                        self.player_ship.shield = data.get("shield", self.player_ship.shield)
+                        self.show_message(f"Zasah od {data.get('attacker', 'neznama')}!", 60)
+                    elif etype == "respawn":
+                        self.player_ship.x = data["x"]
+                        self.player_ship.y = data["y"]
+                        self.player_ship.hp = self.player_ship.max_hp
+                        self.player_ship.shield = self.player_ship.max_shield
+                        self.show_message("Respawn!", 60)
+            else:
+                self.disconnect_multiplayer()
+                self.show_message("Spojeni se serverem ztraceno!", 180)
+                self.state = "MENU"
+        else:
+            self.remote_players.clear()
+
     def dock_at_planet(self, planet):
         self.player_ship.docked_at = planet.name
         self.docked_planet = planet
@@ -1466,14 +1584,18 @@ class SpaceRangersGame:
     def fire_weapon(self):
         if self.player_ship.last_shot > 0: return
         self.player_ship.last_shot = self.player_ship.shoot_delay
+        bx = self.player_ship.x + math.cos(self.player_ship.direction) * 20
+        by = self.player_ship.y + math.sin(self.player_ship.direction) * 20
+        bvx = math.cos(self.player_ship.direction) * 8
+        bvy = math.sin(self.player_ship.direction) * 8
         bullet = {
-            'x': self.player_ship.x + math.cos(self.player_ship.direction) * 20,
-            'y': self.player_ship.y + math.sin(self.player_ship.direction) * 20,
-            'vx': math.cos(self.player_ship.direction) * 8,
-            'vy': math.sin(self.player_ship.direction) * 8,
+            'x': bx, 'y': by,
+            'vx': bvx, 'vy': bvy,
             'life': 60
         }
         self.bullets.append(bullet)
+        if self.multiplayer and self.network and self.network.connected:
+            self.network.send_shoot(bx, by, bvx, bvy)
 
     def update_bullets(self):
         for bullet in self.bullets[:]:
@@ -1482,6 +1604,17 @@ class SpaceRangersGame:
             bullet['life'] -= 1
             if bullet['life'] <= 0:
                 self.bullets.remove(bullet)
+                continue
+            hit_remote = False
+            if self.multiplayer:
+                for pid, rp in list(self.remote_players.items()):
+                    dist = math.sqrt((bullet['x'] - rp.x)**2 + (bullet['y'] - rp.y)**2)
+                    if dist < 14:
+                        hit_remote = True
+                        break
+            if hit_remote:
+                if bullet in self.bullets:
+                    self.bullets.remove(bullet)
                 continue
             for enemy in self.enemies[:]:
                 dist = math.sqrt((bullet['x'] - enemy.x)**2 + (bullet['y'] - enemy.y)**2)
@@ -1542,6 +1675,7 @@ class SpaceRangersGame:
         elif self.state == "CREDITS": self.draw_credits()
         elif self.state == "MINING": self.draw_mining()
         elif self.state == "MINING_LOG": self.draw_mining_log()
+        elif self.state == "MULTIPLAYER": self.draw_multiplayer_menu()
         if self.message:
             self.draw_message()
         pygame.display.flip()
@@ -1569,6 +1703,14 @@ class SpaceRangersGame:
             planet.draw_on_radar(self.screen, radar_x, radar_y, radar_scale, self.player_ship.x, self.player_ship.y)
         for enemy in self.enemies:
             enemy.draw_on_radar(self.screen, radar_x, radar_y, radar_scale, self.player_ship.x, self.player_ship.y)
+        for rp in self.remote_players.values():
+            rel_x = rp.x - self.player_ship.x
+            rel_y = rp.y - self.player_ship.y
+            dist = math.sqrt(rel_x**2 + rel_y**2)
+            if dist <= RADAR_RANGE:
+                rx = radar_x + RADAR_SIZE // 2 + int(rel_x * radar_scale)
+                ry = radar_y + RADAR_SIZE // 2 + int(rel_y * radar_scale)
+                pygame.draw.circle(self.screen, CYAN, (rx, ry), 3)
         for item in self.floating_items:
             rel_x = item["x"] - self.player_ship.x
             rel_y = item["y"] - self.player_ship.y
@@ -1632,6 +1774,7 @@ class SpaceRangersGame:
             ("[2] Nacist hru (Wallet)", BRIGHT_BLUE, "Nactete ulozenou hru z walletu"),
             ("[3] Kredity", YELLOW, "Informace o hre a tvurcich"),
             ("[4] Start Mining", PURPLE, "Zacnete mined Havirov Coins"),
+            ("[5] Multiplayer", CYAN, "Hrajte s ostatnimi hraci po siti"),
             ("[ESC] Konec", BRIGHT_RED, "Ukonceni hry")
         ]
         
@@ -1704,6 +1847,41 @@ class SpaceRangersGame:
                     self.screen.blit(warning_surface, (screen_x - 20, screen_y - 20))
                 
                 enemy.draw_in_space(self.screen, screen_x, screen_y, self.zoom)
+
+        # Ostatni hraci (multiplayer)
+        for pid, rp in list(self.remote_players.items()):
+            dist_to_player = math.sqrt((rp.x - self.player_ship.x)**2 + (rp.y - self.player_ship.y)**2)
+            if dist_to_player > 3000:
+                continue
+            screen_x = int((rp.x - self.camera_x) * self.zoom + SCREEN_WIDTH // 2)
+            screen_y = int((rp.y - self.camera_y) * self.zoom + SCREEN_HEIGHT // 2)
+            if 0 <= screen_x <= SCREEN_WIDTH and 0 <= screen_y <= SCREEN_HEIGHT:
+                size = max(4, int(14 * self.zoom))
+                hue = (pid * 60) % 360
+                rp_color = (
+                    int(128 + 127 * math.sin(hue * 0.01745)),
+                    int(128 + 127 * math.sin((hue + 120) * 0.01745)),
+                    int(128 + 127 * math.sin((hue + 240) * 0.01745))
+                )
+                points = [
+                    (screen_x + size * math.cos(rp.direction),
+                     screen_y + size * math.sin(rp.direction)),
+                    (screen_x + size * 0.6 * math.cos(rp.direction + 2.3),
+                     screen_y + size * 0.6 * math.sin(rp.direction + 2.3)),
+                    (screen_x - size * 0.5 * math.cos(rp.direction),
+                     screen_y - size * 0.5 * math.sin(rp.direction)),
+                    (screen_x + size * 0.6 * math.cos(rp.direction - 2.3),
+                     screen_y + size * 0.6 * math.sin(rp.direction - 2.3))
+                ]
+                pygame.draw.polygon(self.screen, rp_color, points)
+                pygame.draw.polygon(self.screen, WHITE, points, 1)
+                name_tag = self.font_tiny.render(rp.name, True, CYAN)
+                self.screen.blit(name_tag, (screen_x - name_tag.get_width() // 2, screen_y - size - 14))
+                hp_pct = rp.hp / max(1, rp.max_hp)
+                hp_color = GREEN if hp_pct > 0.5 else YELLOW if hp_pct > 0.25 else RED
+                bar_w = max(10, int(30 * self.zoom))
+                pygame.draw.rect(self.screen, DARK_GRAY, (screen_x - bar_w//2, screen_y - size - 5, bar_w, 4))
+                pygame.draw.rect(self.screen, hp_color, (screen_x - bar_w//2, screen_y - size - 5, int(bar_w * hp_pct), 4))
         
         # Floating items (loot from pirates)
         for item in self.floating_items:
@@ -2636,12 +2814,18 @@ class SpaceRangersGame:
         self.screen.blit(xp_text, (580,85))
         
         # Status informace
-        if self.player_ship.docked_at:
+        status_x = 770
+        if self.multiplayer and self.network and self.network.connected:
+            mp_text = self.font_tiny.render(f"MP: {len(self.remote_players)} hracu", True, CYAN)
+            self.screen.blit(mp_text, (status_x, 40))
+            name_text = self.font_tiny.render(self.player_ship.name, True, BRIGHT_GREEN)
+            self.screen.blit(name_text, (status_x, 55))
+        elif self.player_ship.docked_at:
             docked_text = self.font_tiny.render(f"Docked at: {self.player_ship.docked_at}", True, YELLOW)
-            self.screen.blit(docked_text, (770,40))
+            self.screen.blit(docked_text, (status_x, 40))
         else:
             status_text = self.font_tiny.render("In flight", True, GREEN)
-            self.screen.blit(status_text, (770,40))
+            self.screen.blit(status_text, (status_x, 40))
 
     def draw_game_controls(self):
         controls = ["[M] Mapa", "[F] Palivo", "[Q] Ukoly", "[U] Vylepseni", "[K] Mining", "[L] Mining Log", "[SPACE] Strelba", "[ESC] Menu"]
