@@ -268,20 +268,20 @@ class Planet:
     def _generate_prices(self):
         prices = {}
         base_prices = {
-            "Minerály": {"base": 80, "variance": 40, "multiplier": 1.0},
-            "Zbraně": {"base": 400, "variance": 200, "multiplier": 1.2},
-            "Potraviny": {"base": 80, "variance": 40, "multiplier": 0.8},
-            "Technologie": {"base": 600, "variance": 300, "multiplier": 1.5},
-            "Léky": {"base": 200, "variance": 100, "multiplier": 1.1},
-            "Luxus": {"base": 800, "variance": 400, "multiplier": 2.0},
-            "Komponenty": {"base": 120, "variance": 60, "multiplier": 0.9}
+            "Minerály": {"base": 0.5, "variance": 0.3, "multiplier": 1.0},
+            "Zbraně": {"base": 2.0, "variance": 1.0, "multiplier": 1.2},
+            "Potraviny": {"base": 0.3, "variance": 0.2, "multiplier": 0.8},
+            "Technologie": {"base": 3.0, "variance": 1.5, "multiplier": 1.5},
+            "Léky": {"base": 1.0, "variance": 0.5, "multiplier": 1.1},
+            "Luxus": {"base": 5.0, "variance": 2.5, "multiplier": 2.0},
+            "Komponenty": {"base": 0.8, "variance": 0.4, "multiplier": 0.9}
         }
         
         for item, cat in ALL_ITEMS:
             if cat in base_prices:
                 price_data = base_prices[cat]
                 # Základní cena s náhodnou odchylkou
-                base_price = price_data["base"] + random.randint(-price_data["variance"], price_data["variance"])
+                base_price = price_data["base"] + random.uniform(-price_data["variance"], price_data["variance"])
                 # Multiplikátor podle typu stanice
                 station_multiplier = {
                     "PLANET": 1.0,
@@ -292,12 +292,12 @@ class Planet:
                 }.get(self.station_type, 1.0)
                 
                 # Výpočet finální ceny
-                final_price = int(base_price * price_data["multiplier"] * station_multiplier)
+                final_price = base_price * price_data["multiplier"] * station_multiplier
                 # Omezení rozumného rozsahu
-                final_price = max(20, min(10000, final_price))
-                prices[item] = final_price
+                final_price = max(0.0001, min(50.0, final_price))
+                prices[item] = round(final_price, 4)
             else:
-                prices[item] = random.randint(100, 1000)
+                prices[item] = round(random.uniform(0.1, 2.0), 4)
         
         return prices
 
@@ -326,21 +326,21 @@ class Planet:
             if item in self.trade_history:
                 # Pokud byl item nedavno koupen, cena stoupla
                 if self.trade_history[item] > 0:
-                    self.prices[item] = int(self.prices[item] * 1.1)
+                    self.prices[item] = round(self.prices[item] * 1.1, 4)
                 # Pokud byl item nedavno prodan, cena klesla
                 elif self.trade_history[item] < 0:
-                    self.prices[item] = int(self.prices[item] * 0.9)
+                    self.prices[item] = round(self.prices[item] * 0.9, 4)
                 
                 # Omezeni rozsahu ceny
                 base_price = self._get_base_price(item)
-                self.prices[item] = max(int(base_price * 0.5), min(int(base_price * 3.0), self.prices[item]))
+                self.prices[item] = max(round(base_price * 0.5, 4), min(round(base_price * 3.0, 4), self.prices[item]))
             
             # Postupne vraceni puvodni ceny
             base_price = self._get_base_price(item)
             if self.prices[item] > base_price:
-                self.prices[item] = int(self.prices[item] * 0.99)
+                self.prices[item] = round(self.prices[item] * 0.99, 4)
             elif self.prices[item] < base_price:
-                self.prices[item] = int(self.prices[item] * 1.01)
+                self.prices[item] = round(self.prices[item] * 1.01, 4)
         
         # Reset historie
         self.trade_history.clear()
@@ -348,18 +348,18 @@ class Planet:
     def _get_base_price(self, item):
         """Ziskani zakladni ceny polozky"""
         base_prices = {
-            "Minerály": 80,
-            "Zbraně": 400,
-            "Potraviny": 80,
-            "Technologie": 600,
-            "Léky": 200,
-            "Luxus": 800,
-            "Komponenty": 120
+            "Minerály": 0.5,
+            "Zbraně": 2.0,
+            "Potraviny": 0.3,
+            "Technologie": 3.0,
+            "Léky": 1.0,
+            "Luxus": 5.0,
+            "Komponenty": 0.8
         }
         category = ITEM_CATEGORY_MAP.get(item)
         if category is None:
             category = next((cat for cat, items in ITEM_CATEGORIES.items() if item in items), "Neznámé")
-        return base_prices.get(category, 100)
+        return base_prices.get(category, 0.1)
     
     def record_trade(self, item, amount):
         """Zaznamenani obchodu pro dynamickou cenu"""
@@ -763,16 +763,16 @@ class SpaceRangersGame:
     def _generate_quests(self):
         return [
             {"name": "Doruc zbrane na Mars", "type": "deliver", "item": "Zbrane",
-             "amount": 5, "from": "Zeme", "to": "Mars", "reward": 500},
+             "amount": 5, "from": "Zeme", "to": "Mars", "reward": 5.0},
             {"name": "Sber rudy v sektoru", "type": "collect", "item": "Ruda",
-             "amount": 20, "reward": 300},
-            {"name": "Znic piratske lodi", "type": "kill", "amount": 3, "reward": 800},
+             "amount": 20, "reward": 3.0},
+            {"name": "Znic piratske lodi", "type": "kill", "amount": 3, "reward": 8.0},
             {"name": "Doruc potraviny na Faeganu", "type": "deliver", "item": "Potraviny",
-             "amount": 10, "from": "Nova Zeme", "to": "Faegana", "reward": 400},
+             "amount": 10, "from": "Nova Zeme", "to": "Faegana", "reward": 4.0},
             {"name": "Doruc technologie na Pelengii", "type": "deliver", "item": "Technologie",
-             "amount": 8, "from": "Hlavni Doky", "to": "Pelengia", "reward": 600},
+             "amount": 8, "from": "Hlavni Doky", "to": "Pelengia", "reward": 6.0},
             {"name": "Doruc leky na Gaalos", "type": "deliver", "item": "Leky",
-             "amount": 12, "from": "Hi-Tech Lab", "to": "Gaalos", "reward": 550},
+             "amount": 12, "from": "Hi-Tech Lab", "to": "Gaalos", "reward": 5.5},
         ]
 
     def show_message(self, text, duration=120):
@@ -1713,13 +1713,13 @@ class SpaceRangersGame:
 
         try:
             self.docked_planet.update_prices()
-            price = self.docked_planet.prices.get(item, 100)
+            price = self.docked_planet.prices.get(item, 0.1)
             stock = self.docked_planet.goods.get(item, 0)
 
             se = self.player_ship.get_skill_effects()
-            price = max(1, int(price * (1 - se["barter_buy"])))
+            price = max(0.0001, round(price * (1 - se["barter_buy"]), 4))
 
-            if price <= 0 or stock <= 0:
+            if price <= 0.0001 or stock <= 0:
                 self.show_message(f"{item} neni skladem!")
                 return
 
@@ -1783,12 +1783,12 @@ class SpaceRangersGame:
         if item in self.player_ship.cargo:
             try:
                 self.docked_planet.update_prices()
-                price = self.docked_planet.prices.get(item, 100)
+                price = self.docked_planet.prices.get(item, 0.1)
 
                 se = self.player_ship.get_skill_effects()
-                price = max(1, int(price * (1 + se["barter_sell"])))
+                price = max(0.0001, round(price * (1 + se["barter_sell"]), 4))
 
-                if price <= 0:
+                if price <= 0.0001:
                     self.show_message(f"{item} nema cenu!")
                     return
 
@@ -1870,8 +1870,8 @@ class SpaceRangersGame:
             self.quest_progress = {"kill": 0, "collect": 0}
 
     def upgrade_ship(self, upgrade_type):
-        costs = {"hp": 500, "shield": 400, "speed": 300, "cargo": 600, "fuel": 350}
-        cost = costs.get(upgrade_type, 1000)
+        costs = {"hp": 5.0, "shield": 4.0, "speed": 3.0, "cargo": 6.0, "fuel": 3.5}
+        cost = costs.get(upgrade_type, 10.0)
         if self.wallet.subtract_credits(cost):
             if upgrade_type == "hp":
                 self.player_ship.max_hp += 20
@@ -2582,7 +2582,7 @@ class SpaceRangersGame:
                 item_text = self.font_tiny.render(f"{item}", True, WHITE if in_stock else GRAY)
                 self.screen.blit(item_text, (btn_rect.x + 6, btn_rect.y + 8))
 
-                price_color = GREEN if price < 500 else YELLOW if price < 1000 else RED
+                price_color = GREEN if price < 1.0 else YELLOW if price < 3.0 else RED
                 price_text = self.font_tiny.render(f"{price} HVC", True, price_color if in_stock else GRAY)
                 self.screen.blit(price_text, (btn_rect.x + col_w - 80, btn_rect.y + 8))
 
@@ -2615,7 +2615,7 @@ class SpaceRangersGame:
                 item_text = self.font_tiny.render(f"{item} ({amount}x)", True, WHITE)
                 self.screen.blit(item_text, (btn_rect.x + 6, btn_rect.y + 8))
 
-                price_color = GREEN if price < 500 else YELLOW if price < 1000 else RED
+                price_color = GREEN if price < 1.0 else YELLOW if price < 3.0 else RED
                 price_text = self.font_tiny.render(f"{price} HVC", True, price_color)
                 self.screen.blit(price_text, (btn_rect.x + col_w - 70, btn_rect.y + 8))
 
