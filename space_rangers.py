@@ -156,7 +156,6 @@ for i in range(600 - len(ALL_ITEMS)):
 # Pre-computed item name -> category map
 ITEM_CATEGORY_MAP = {name: cat for name, cat in ALL_ITEMS}
 
-# Passive bonuses from items kept in cargo
 ITEM_PASSIVE_BONUSES = {
     "Štítový generátor": {"max_shield": 10, "shield_regen": 0.05},
     "AI moduly": {"rotation_speed": 0.02},
@@ -171,6 +170,14 @@ ITEM_PASSIVE_BONUSES = {
     "Antibiotika": {"hp_regen": 0.03},
     "Regenerace": {"hp_regen": 0.08},
     "Nanoleky": {"hp_regen": 0.05, "max_hp": 10},
+}
+
+SKILL_DEFS = {
+    "obchod": {"name": "Obchodování", "icon": "$", "desc": "Sleva pri nákupu a prémiový prodej (+0.2%/lvl)", "max": 100},
+    "stity": {"name": "Štíty", "icon": "◈", "desc": "Více štítů (+1/lvl) a rychlejší regenerace", "max": 100},
+    "zbrane": {"name": "Zbraně", "icon": "⚔", "desc": "Větší poškození (+1%/lvl) a rychlejší střelba", "max": 100},
+    "motor": {"name": "Motor", "icon": "»", "desc": "Vyšší rychlost a tah motoru", "max": 100},
+    "naklad": {"name": "Náklad", "icon": "▣", "desc": "Větší nákladový prostor (+2/lvl)", "max": 100},
 }
 
 class Planet:
@@ -400,6 +407,8 @@ class Ship:
         self.level = 1
         self.xp = 0
         self.xp_to_level = 100
+        self.skills = {"obchod": 0, "stity": 0, "zbrane": 0, "motor": 0, "naklad": 0}
+        self.skill_points = 0
         self.name = get_random_ship_name()
         self.thrust_power = 0.08
         self.max_speed = 4.0
@@ -489,6 +498,22 @@ class Ship:
 
         new_bonuses = {}
         self.radar_bonus = 0
+
+        se = self.get_skill_effects()
+        for stat, val in se.items():
+            if stat == "cargo":
+                new_bonuses["max_cargo"] = new_bonuses.get("max_cargo", 0) + val
+            elif stat == "shield_max":
+                new_bonuses["max_shield"] = new_bonuses.get("max_shield", 0) + val
+            elif stat == "speed":
+                new_bonuses["max_speed"] = new_bonuses.get("max_speed", 0) + val
+            elif stat == "thrust":
+                new_bonuses["thrust_power"] = new_bonuses.get("thrust_power", 0) + val
+            elif stat == "shoot_delay":
+                new_bonuses["shoot_delay"] = new_bonuses.get("shoot_delay", 0) + val
+            elif stat in ("shield_regen", "damage_pct"):
+                new_bonuses[stat] = new_bonuses.get(stat, 0) + val
+
         for item, count in self.cargo.items():
             if item in ITEM_PASSIVE_BONUSES:
                 for stat, val in ITEM_PASSIVE_BONUSES[item].items():
@@ -505,6 +530,20 @@ class Ship:
                     setattr(self, stat, getattr(self, stat) + val)
 
         self._applied_bonuses = new_bonuses
+
+    def get_skill_effects(self):
+        s = self.skills
+        return {
+            "barter_buy": s["obchod"] * 0.002,
+            "barter_sell": s["obchod"] * 0.002,
+            "shield_max": s["stity"],
+            "shield_regen": s["stity"] * 0.01,
+            "damage_pct": s["zbrane"] * 0.01,
+            "shoot_delay": s["zbrane"] * 0.1,
+            "speed": s["motor"] * 0.02,
+            "thrust": s["motor"] * 0.001,
+            "cargo": s["naklad"] * 2,
+        }
 
     def add_cargo(self, item, amount):
         current = self.cargo.get(item, 0)
@@ -784,6 +823,8 @@ class SpaceRangersGame:
                 self.handle_credits_events(event)
             elif self.state == "MINING_LOG":
                 self.handle_mining_log_events(event)
+            elif self.state == "SKILLS":
+                self.handle_skills_events(event)
             elif self.state == "MULTIPLAYER":
                 self.handle_multiplayer_events(event)
 
@@ -866,6 +907,8 @@ class SpaceRangersGame:
             elif event.key == pygame.K_l:  # L for mining log/stats
                 if self.state == "GAME":
                     self.state = "MINING_LOG"
+            elif event.key == pygame.K_p:
+                self.state = "SKILLS"
             elif event.key == pygame.K_SPACE:
                 self.fire_weapon()
 
@@ -892,6 +935,8 @@ class SpaceRangersGame:
                     self.start_mining()
                 else:
                     self.stop_mining()
+            elif event.key == pygame.K_p:
+                self.state = "SKILLS"
 
     def handle_trading_events(self, event):
         if event.type == pygame.KEYDOWN:
@@ -1041,6 +1086,25 @@ class SpaceRangersGame:
                 self.state = "GAME"
             elif event.key == pygame.K_l:
                 pass
+
+    def handle_skills_events(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE or event.key == pygame.K_p:
+                self.state = "GAME"
+            for sk_id in SKILL_DEFS:
+                idx = list(SKILL_DEFS.keys()).index(sk_id)
+                if event.key == getattr(pygame, f"K_{idx + 1}", None):
+                    s = self.player_ship
+                    if s.skill_points > 0 and s.skills[sk_id] < SKILL_DEFS[sk_id]["max"]:
+                        s.skills[sk_id] += 1
+                        s.skill_points -= 1
+                        s.update_passive_bonuses()
+                        self.show_message(f"{SKILL_DEFS[sk_id]['name']}: {s.skills[sk_id]}/{SKILL_DEFS[sk_id]['max']}", 90)
+                    elif s.skill_points <= 0:
+                        self.show_message("Nemate volne skill body!", 90)
+                    else:
+                        self.show_message(f"Skill {SKILL_DEFS[sk_id]['name']} je na maximu!", 90)
+                    break
     
     def handle_multiplayer_events(self, event):
         if event.type == pygame.KEYDOWN:
@@ -1532,6 +1596,9 @@ class SpaceRangersGame:
             price = self.docked_planet.prices.get(item, 100)
             stock = self.docked_planet.goods.get(item, 0)
 
+            se = self.player_ship.get_skill_effects()
+            price = max(1, int(price * (1 - se["barter_buy"])))
+
             if price <= 0 or stock <= 0:
                 self.show_message(f"{item} neni skladem!")
                 return
@@ -1597,6 +1664,9 @@ class SpaceRangersGame:
             try:
                 self.docked_planet.update_prices()
                 price = self.docked_planet.prices.get(item, 100)
+
+                se = self.player_ship.get_skill_effects()
+                price = max(1, int(price * (1 + se["barter_sell"])))
 
                 if price <= 0:
                     self.show_message(f"{item} nema cenu!")
@@ -1774,16 +1844,19 @@ class SpaceRangersGame:
             for enemy in self.enemies[:]:
                 dist = math.sqrt((bullet['x'] - enemy.x)**2 + (bullet['y'] - enemy.y)**2)
                 if dist < enemy.size:
-                    enemy.hp -= 25
+                    se = self.player_ship.get_skill_effects()
+                    damage = int(25 * (1 + se["damage_pct"]))
+                    enemy.hp -= damage
                     if enemy.hp <= 0:
                         self.enemies.remove(enemy)
                         self.player_ship.xp += 50
                         self._spawn_floating_item(enemy.x, enemy.y)
-                        if self.player_ship.xp >= self.player_ship.xp_to_level:
+                        while self.player_ship.xp >= self.player_ship.xp_to_level:
+                            self.player_ship.xp -= self.player_ship.xp_to_level
                             self.player_ship.level += 1
-                            self.player_ship.xp = 0
-                            self.player_ship.xp_to_level *= 1.5
-                            self.show_message(f"Level up! Nyni level {self.player_ship.level}")
+                            self.player_ship.skill_points += 1
+                            self.player_ship.xp_to_level = 100 + (self.player_ship.level - 1) * 25
+                            self.show_message(f"Level up! Nyni level {self.player_ship.level} (+1 skill bod)", 120)
                         if self.current_quest and self.current_quest['type'] == 'kill':
                             self.quest_progress['kill'] += 1
                             # Zobrazi aktualni progress
@@ -1830,6 +1903,7 @@ class SpaceRangersGame:
         elif self.state == "BUY_FUEL": self.draw_buy_fuel()
         elif self.state == "CREDITS": self.draw_credits()
         elif self.state == "MINING_LOG": self.draw_mining_log()
+        elif self.state == "SKILLS": self.draw_skills()
         elif self.state == "MULTIPLAYER": self.draw_multiplayer_menu()
         if self.message:
             self.draw_message()
