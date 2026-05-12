@@ -2865,16 +2865,22 @@ class SpaceRangersGame:
         upgrades_title = self.font_medium.render("VYLEPSENI", True, BRIGHT_YELLOW)
         self.screen.blit(upgrades_title, (500, 120))
         
+        # Aktualni ceny pro vylepseni
+        ship_costs = {"hp": 0.5, "shield": 0.4, "speed": 0.3, "cargo": 0.6, "fuel": 0.35}
+        weapon_costs = {"weapon": 10.0, "weapon2": 20.0}
+        engine_cost = 8.0
+        radar_cost = 15.0
+        
         upgrades = [
-            ("Posileni trupu (+20 HP)", 500, "hp", "Zvysi maximalni HP o 20 bodu"),
-            ("Stity (+20)", 400, "shield", "Zvysi maximalni stity o 20 bodu"),
-            ("Rychlost (+0.5)", 300, "speed", "Zvysi maximalni rychlost o 0.5"),
-            ("Naklad (+20)", 600, "cargo", "Zvysi maximalni naklad o 20 jednotek"),
-            ("Max palivo (+50)", 350, "fuel", "Zvysi maximalni palivo o 50 jednotek"),
-            ("Laser II", 1000, "weapon", "Nova zbran - rychlejsi strelba"),
-            ("Plazmová puška", 2000, "weapon2", "Silna zbran s velkym dosahem"),
-            ("Motor vylepseni", 800, "engine", "Vylepseny motor - vetsi tah a rychlost"),
-            ("Radar+ (+" + str(self.effective_radar_range) + ")", 1500, "radar", "Zvysi radarovy dosah")
+            ("Posileni trupu (+20 HP)", ship_costs["hp"], "hp", "Zvysi maximalni HP o 20 bodu"),
+            ("Stity (+20)", ship_costs["shield"], "shield", "Zvysi maximalni stity o 20 bodu"),
+            ("Rychlost (+0.5)", ship_costs["speed"], "speed", "Zvysi maximalni rychlost o 0.5"),
+            ("Naklad (+20)", ship_costs["cargo"], "cargo", "Zvysi maximalni naklad o 20 jednotek"),
+            ("Max palivo (+50)", ship_costs["fuel"], "fuel", "Zvysi maximalni palivo o 50 jednotek"),
+            ("Laser II", weapon_costs["weapon"], "weapon", "Nova zbran - rychlejsi strelba"),
+            ("Plazmová puška", weapon_costs["weapon2"], "weapon2", "Silna zbran s velkym dosahem"),
+            ("Motor vylepseni", engine_cost, "engine", "Vylepseny motor - vetsi tah a rychlost"),
+            ("Radar+ (+" + str(self.effective_radar_range) + ")", radar_cost, "radar", "Zvysi radarovy dosah")
         ]
         
         mouse_pos = pygame.mouse.get_pos()
@@ -2900,9 +2906,14 @@ class SpaceRangersGame:
             pygame.draw.rect(self.screen, btn_color, btn_rect)
             pygame.draw.rect(self.screen, border_color, btn_rect, 2)
             
-            # Text informace
+            # Text informace s aktualni cenou
             name_color = WHITE if can_afford else GRAY
-            text = self.font_small.render(f"{name} - {cost:.4f} HVC", True, name_color)
+            # Aktualizace ceny pro zbrane (jsou 100x levnejsi)
+            if up_type in ["weapon", "weapon2"]:
+                display_cost = cost / 100
+            else:
+                display_cost = cost
+            text = self.font_small.render(f"{name} - {display_cost:.4f} HVC", True, name_color)
             self.screen.blit(text, (510, y_pos + 8))
             
             # Popisek
@@ -2915,7 +2926,12 @@ class SpaceRangersGame:
                 status_text = self.font_tiny.render(f"Aktualne: {current_value}", True, GREEN)
                 self.screen.blit(status_text, (850, y_pos + 12))
             
-            self.clickable_buttons.append({'rect': btn_rect, 'action': lambda t=up_type, c=cost: self._do_upgrade(t, c)})
+            # Aktualizace ceny pro zbrane (jsou 100x levnejsi)
+            if up_type in ["weapon", "weapon2"]:
+                actual_cost = cost / 100
+            else:
+                actual_cost = cost
+            self.clickable_buttons.append({'rect': btn_rect, 'action': lambda t=up_type, c=actual_cost: self._do_upgrade(t, c)})
         
         # Zpet tlacidlo
         back_btn_rect = pygame.Rect(SCREEN_WIDTH // 2 - 80, SCREEN_HEIGHT - 80, 160, 40)
