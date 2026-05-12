@@ -41,6 +41,7 @@ RADAR_POS = (SCREEN_WIDTH - RADAR_SIZE - 20, 100)
 WALLET_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/wallet.dat"
 MINER_CONFIG_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/miner_config.json"
 MINER_SHARES_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/valid_shares.log"
+SAVE_PATH = "/home/davidprosek/Space-Rangers/savegame.json"
 
 class WalletInterface:
     def __init__(self):
@@ -626,6 +627,7 @@ class SpaceRangersGame:
         self.clickable_buttons = []
         self.trading_scroll = 0
         self.cargo_scroll = 0
+        self.autosave_timer = 0
 
     def _generate_galaxy(self):
         return [
@@ -770,7 +772,10 @@ class SpaceRangersGame:
             elif event.key == pygame.K_2:
                 self.wallet.load_wallet()
                 self.credits = self.wallet.get_balance()
-                self.show_message(f"Wallet nacten! Zustatek: {self.credits} HVC", 180)
+                if self.load_game():
+                    self.show_message(f"Hra nactena! Pozice: [{int(self.player_ship.x)},{int(self.player_ship.y)}]", 180)
+                else:
+                    self.show_message(f"Wallet nacten! Zustatek: {self.credits} HVC", 180)
                 self.state = "GAME"
             elif event.key == pygame.K_3:
                 self.state = "CREDITS"
@@ -1075,6 +1080,66 @@ class SpaceRangersGame:
             desc_text = self.font_tiny.render(desc, True, LIGHT_GRAY)
             self.screen.blit(desc_text, (SCREEN_WIDTH // 2 - 150, y + 25))
 
+    def save_game(self):
+        try:
+            s = self.player_ship
+            data = {
+                "x": s.x, "y": s.y,
+                "hp": s.hp, "max_hp": s.max_hp,
+                "shield": s.shield, "max_shield": s.max_shield,
+                "fuel": s.fuel, "max_fuel": s.max_fuel,
+                "cargo": s.cargo, "max_cargo": s.max_cargo,
+                "weapons": s.weapons,
+                "level": s.level, "xp": s.xp, "xp_to_level": s.xp_to_level,
+                "name": s.name,
+                "thrust_power": s.thrust_power, "max_speed": s.max_speed,
+                "rotation_speed": s.rotation_speed,
+                "drag": s.drag, "shoot_delay": s.shoot_delay,
+                "camera_x": self.camera_x, "camera_y": self.camera_y,
+                "zoom": self.zoom,
+                "credits": self.credits
+            }
+            with open(SAVE_PATH, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Autosave chyba: {e}")
+
+    def load_game(self):
+        try:
+            if not os.path.exists(SAVE_PATH):
+                return False
+            with open(SAVE_PATH, "r") as f:
+                data = json.load(f)
+            s = self.player_ship
+            s.x = data.get("x", s.x)
+            s.y = data.get("y", s.y)
+            s.hp = data.get("hp", s.hp)
+            s.max_hp = data.get("max_hp", s.max_hp)
+            s.shield = data.get("shield", s.shield)
+            s.max_shield = data.get("max_shield", s.max_shield)
+            s.fuel = data.get("fuel", s.fuel)
+            s.max_fuel = data.get("max_fuel", s.max_fuel)
+            s.cargo = data.get("cargo", s.cargo)
+            s.max_cargo = data.get("max_cargo", s.max_cargo)
+            s.weapons = data.get("weapons", s.weapons)
+            s.level = data.get("level", s.level)
+            s.xp = data.get("xp", s.xp)
+            s.xp_to_level = data.get("xp_to_level", s.xp_to_level)
+            s.name = data.get("name", s.name)
+            s.thrust_power = data.get("thrust_power", s.thrust_power)
+            s.max_speed = data.get("max_speed", s.max_speed)
+            s.rotation_speed = data.get("rotation_speed", s.rotation_speed)
+            s.drag = data.get("drag", s.drag)
+            s.shoot_delay = data.get("shoot_delay", s.shoot_delay)
+            self.camera_x = data.get("camera_x", self.camera_x)
+            self.camera_y = data.get("camera_y", self.camera_y)
+            self.zoom = data.get("zoom", self.zoom)
+            self.credits = data.get("credits", self.credits)
+            return True
+        except Exception as e:
+            print(f"Load save chyba: {e}")
+            return False
+
     def start_mining(self):
         """Start real mining using Havirov-Coin CPUMiner"""
         try:
@@ -1349,12 +1414,18 @@ class SpaceRangersGame:
         else:
             self.remote_players.clear()
 
+        self.autosave_timer += 1
+        if self.autosave_timer >= 600:
+            self.autosave_timer = 0
+            self.save_game()
+
     def dock_at_planet(self, planet):
         self.player_ship.docked_at = planet.name
         self.docked_planet = planet
         self.state = "DOCKED"
         self.show_message(f"Automatické dokovani u: {planet.name} ({planet.get_type_name()})")
         self.check_quest_completion(planet)
+        self.save_game()
 
     def undock(self):
         if not self.docked_planet: return
@@ -1367,6 +1438,7 @@ class SpaceRangersGame:
         self.player_ship.x = planet_x + 100 * math.cos(angle)
         self.player_ship.y = planet_y + 100 * math.sin(angle)
         self.show_message("Odlet z stanice")
+        self.save_game()
 
     def try_teleport_to_planet(self, planet):
         dx = planet.x - self.player_ship.x
@@ -1389,6 +1461,7 @@ class SpaceRangersGame:
             self.player_ship.fuel = min(self.player_ship.max_fuel, self.player_ship.fuel + amount)
             self.credits = self.wallet.get_balance()
             self.show_message(f"Nakoupeno {amount} paliva za {cost} HVC")
+            self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
 
@@ -1417,6 +1490,7 @@ class SpaceRangersGame:
                     self.docked_planet.record_trade(item, 1)
                     self.show_message(f"Koupeno {item} za {price} HVC")
 
+                    self.save_game()
                     if random.random() < 0.3:
                         self.docked_planet._generate_new_goods()
                 else:
@@ -1459,6 +1533,7 @@ class SpaceRangersGame:
                     self.docked_planet.record_trade(item, -1)
                     self.show_message(f"Prodano {item} za {price} HVC")
 
+                    self.save_game()
                     if random.random() < 0.2:
                         self.docked_planet._generate_new_goods()
                 else:
@@ -1547,6 +1622,7 @@ class SpaceRangersGame:
                 self.player_ship.fuel = self.player_ship.max_fuel
             self.credits = self.wallet.get_balance()
             self.show_message(f"Vylepseni zakoupeno za {cost} HVC")
+            self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
 
@@ -1557,6 +1633,7 @@ class SpaceRangersGame:
                 self.player_ship.shoot_delay = max(5, self.player_ship.shoot_delay - 2)
                 self.credits = self.wallet.get_balance()
                 self.show_message(f"Zbran {weapon_name} zakoupena!")
+                self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
 
@@ -1567,6 +1644,7 @@ class SpaceRangersGame:
             self.player_ship.max_speed += 0.5
             self.credits = self.wallet.get_balance()
             self.show_message("Motor vylepsen!")
+            self.save_game()
 
     def upgrade_radar(self):
         global RADAR_RANGE
@@ -1575,6 +1653,7 @@ class SpaceRangersGame:
             RADAR_RANGE = min(3000, RADAR_RANGE + 500)
             self.credits = self.wallet.get_balance()
             self.show_message(f"Radar vylepsen! Rozsah: {RADAR_RANGE}u")
+            self.save_game()
 
     def open_wallet(self):
         self.wallet.load_wallet()
@@ -1661,6 +1740,7 @@ class SpaceRangersGame:
                     break
         if collected > 0:
             self.show_message(f"Sebrano {collected}x predmetu", 90)
+            self.save_game()
 
     def draw(self):
         self.screen.fill(SPACE_BG)
@@ -2839,6 +2919,8 @@ class SpaceRangersGame:
             self.update()
             self.draw()
             self.clock.tick(FPS)
+        if self.state != "MENU":
+            self.save_game()
         pygame.quit()
         sys.exit()
 
