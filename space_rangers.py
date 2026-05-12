@@ -156,6 +156,23 @@ for i in range(600 - len(ALL_ITEMS)):
 # Pre-computed item name -> category map
 ITEM_CATEGORY_MAP = {name: cat for name, cat in ALL_ITEMS}
 
+# Passive bonuses from items kept in cargo
+ITEM_PASSIVE_BONUSES = {
+    "Štítový generátor": {"max_shield": 10, "shield_regen": 0.05},
+    "AI moduly": {"rotation_speed": 0.02},
+    "Navigace": {"max_speed": 0.5},
+    "Nanotechnologie": {"hp_regen": 0.05},
+    "Bionika": {"max_hp": 15},
+    "Kybernetika": {"max_hp": 10, "hp_regen": 0.02},
+    "Motory": {"thrust_power": 0.02, "max_speed": 0.3},
+    "Senzoři": {"radar_range": 100},
+    "Komunikace": {"radar_range": 50},
+    "Stimulanty": {"max_speed": 0.5},
+    "Antibiotika": {"hp_regen": 0.03},
+    "Regenerace": {"hp_regen": 0.08},
+    "Nanoleky": {"hp_regen": 0.05, "max_hp": 10},
+}
+
 class Planet:
     def __init__(self, name, x, y, station_type="PLANET"):
         self.name = name
@@ -392,6 +409,8 @@ class Ship:
         self.drag = 0.96
         self.last_shot = 0
         self.shoot_delay = 15
+        self._applied_bonuses = {}
+        self.radar_bonus = 0
 
     def apply_thrust(self, direction, amount=1.0):
         self.vx += math.cos(direction) * self.thrust_power * amount
@@ -419,8 +438,12 @@ class Ship:
         self.y += self.vy
         self.vx *= self.drag
         self.vy *= self.drag
+        shield_regen = 0.03 + self._applied_bonuses.get("shield_regen", 0)
         if self.shield < self.max_shield:
-            self.shield = min(self.shield + 0.03, self.max_shield)
+            self.shield = min(self.shield + shield_regen, self.max_shield)
+        hp_regen = self._applied_bonuses.get("hp_regen", 0)
+        if hp_regen > 0 and self.hp < self.max_hp:
+            self.hp = min(self.hp + hp_regen, self.max_hp)
 
     def draw_in_space(self, screen, screen_x, screen_y, zoom):
         size = max(4, int(14 * zoom))
@@ -454,10 +477,40 @@ class Ship:
         ]
         pygame.draw.polygon(screen, BRIGHT_GREEN, points)
 
+    def update_passive_bonuses(self):
+        bonus_stats = ["max_hp", "max_shield", "max_fuel", "max_cargo", "max_speed", "thrust_power", "rotation_speed", "shoot_delay"]
+        for stat in bonus_stats:
+            current_val = self._applied_bonuses.get(stat, 0)
+            if current_val != 0:
+                if stat == "shoot_delay":
+                    setattr(self, stat, getattr(self, stat) - current_val)
+                else:
+                    setattr(self, stat, getattr(self, stat) - current_val)
+
+        new_bonuses = {}
+        self.radar_bonus = 0
+        for item, count in self.cargo.items():
+            if item in ITEM_PASSIVE_BONUSES:
+                for stat, val in ITEM_PASSIVE_BONUSES[item].items():
+                    if stat == "radar_range":
+                        self.radar_bonus += val * count
+                    else:
+                        new_bonuses[stat] = new_bonuses.get(stat, 0) + val * count
+
+        for stat, val in new_bonuses.items():
+            if stat in bonus_stats:
+                if stat == "shoot_delay":
+                    setattr(self, stat, getattr(self, stat) + val)
+                else:
+                    setattr(self, stat, getattr(self, stat) + val)
+
+        self._applied_bonuses = new_bonuses
+
     def add_cargo(self, item, amount):
         current = self.cargo.get(item, 0)
         if current + amount <= self.max_cargo:
             self.cargo[item] = current + amount
+            self.update_passive_bonuses()
             return True
         return False
 
@@ -467,6 +520,7 @@ class Ship:
             self.cargo[item] = current - amount
             if self.cargo[item] == 0:
                 del self.cargo[item]
+            self.update_passive_bonuses()
             return True
         return False
 
@@ -1122,6 +1176,7 @@ class SpaceRangersGame:
             self.camera_y = data.get("camera_y", self.camera_y)
             self.zoom = data.get("zoom", self.zoom)
             self.credits = data.get("credits", self.credits)
+            s.update_passive_bonuses()
             return True
         except Exception as e:
             print(f"Load save chyba: {e}")
@@ -1312,7 +1367,9 @@ class SpaceRangersGame:
                     self._last_shown_shares = cm.shared_count
                     self.wallet.load_wallet()
                     self.credits = self.wallet.get_balance()
-            
+        
+        self.effective_radar_range = RADAR_RANGE + self.player_ship.radar_bonus
+
         if self.message_timer > 0:
             self.message_timer -= 1
             if self.message_timer <= 0:
@@ -1798,7 +1855,7 @@ class SpaceRangersGame:
         pygame.draw.rect(self.screen, BORDER_COLOR, (radar_x, radar_y, RADAR_SIZE, RADAR_SIZE), 2)
         title = self.font_tiny.render("RADAR 1500u", True, CYAN)
         self.screen.blit(title, (radar_x + 5, radar_y + 5))
-        radar_scale = (RADAR_SIZE // 2) / RADAR_RANGE
+        radar_scale = (RADAR_SIZE // 2) / self.effective_radar_range
         for r in [250, 500, 750, 1000, 1500]:
             scaled_r = int(r * radar_scale)
             pygame.draw.circle(self.screen, (30,30,50), (radar_x + RADAR_SIZE // 2, radar_y + RADAR_SIZE // 2), scaled_r, 1)
@@ -1818,7 +1875,7 @@ class SpaceRangersGame:
             rel_x = item["x"] - self.player_ship.x
             rel_y = item["y"] - self.player_ship.y
             dist = math.sqrt(rel_x**2 + rel_y**2)
-            if dist <= RADAR_RANGE:
+            if dist <= self.effective_radar_range:
                 rx = radar_x + RADAR_SIZE // 2 + int(rel_x * radar_scale)
                 ry = radar_y + RADAR_SIZE // 2 + int(rel_y * radar_scale)
                 pygame.draw.circle(self.screen, (255, 255, 100), (rx, ry), 2)
@@ -2204,12 +2261,12 @@ class SpaceRangersGame:
         pygame.draw.rect(self.screen, (20,20,40), (radar_mini_x, radar_mini_y, radar_mini_size, radar_mini_size))
         pygame.draw.rect(self.screen, BORDER_COLOR, (radar_mini_x, radar_mini_y, radar_mini_size, radar_mini_size), 1)
         
-        mini_radar_scale = radar_mini_size / (2 * RADAR_RANGE)
+        mini_radar_scale = radar_mini_size / (2 * self.effective_radar_range)
         for enemy in self.enemies:
             rel_x = enemy.x - self.player_ship.x
             rel_y = enemy.y - self.player_ship.y
             dist = math.sqrt(rel_x**2 + rel_y**2)
-            if dist <= RADAR_RANGE:
+            if dist <= self.effective_radar_range:
                 mini_x = radar_mini_x + radar_mini_size // 2 + int(rel_x * mini_radar_scale)
                 mini_y = radar_mini_y + radar_mini_size // 2 + int(rel_y * mini_radar_scale)
                 pygame.draw.circle(self.screen, BRIGHT_RED, (mini_x, mini_y), 1)
@@ -2532,7 +2589,26 @@ class SpaceRangersGame:
             color = BRIGHT_GREEN if i == 0 else CYAN if i == 1 else WHITE
             text = self.font_small.render(info, True, color)
             self.screen.blit(text, (70, 200 + i * 22))
-        
+
+        # Pasivni bonusy z nakladu
+        s = self.player_ship
+        if s._applied_bonuses or s.radar_bonus:
+            bonus_bg = pygame.Rect(50, 380, 380, 90)
+            pygame.draw.rect(self.screen, (20, 40, 20, 200), bonus_bg)
+            pygame.draw.rect(self.screen, GREEN, bonus_bg, 2)
+            bonus_title = self.font_small.render("PASIVNI BONUSY (z nakladu)", True, BRIGHT_GREEN)
+            self.screen.blit(bonus_title, (70, 385))
+            bonus_lines = []
+            for stat, val in s._applied_bonuses.items():
+                if val != 0:
+                    sign = "+"
+                    bonus_lines.append(f"{stat}: {sign}{val:.2f}")
+            if s.radar_bonus:
+                bonus_lines.append(f"radar: +{s.radar_bonus}")
+            for i, line in enumerate(bonus_lines):
+                text = self.font_tiny.render(line, True, GREEN)
+                self.screen.blit(text, (70, 405 + i * 16))
+
         # Dostupna vylepseni
         upgrades_title = self.font_medium.render("VYLEPSENI", True, BRIGHT_YELLOW)
         self.screen.blit(upgrades_title, (500, 120))
@@ -2546,7 +2622,7 @@ class SpaceRangersGame:
             ("Laser II", 1000, "weapon", "Nova zbran - rychlejsi strelba"),
             ("Plazmová puška", 2000, "weapon2", "Silna zbran s velkym dosahem"),
             ("Motor vylepseni", 800, "engine", "Vylepseny motor - vetsi tah a rychlost"),
-            ("Radar+ (+" + str(RADAR_RANGE) + ")", 1500, "radar", "Zvysi radarovy dosah")
+            ("Radar+ (+" + str(self.effective_radar_range) + ")", 1500, "radar", "Zvysi radarovy dosah")
         ]
         
         mouse_pos = pygame.mouse.get_pos()
@@ -2772,6 +2848,10 @@ class SpaceRangersGame:
         
         # Status informace
         status_x = 770
+        if self.player_ship._applied_bonuses or self.player_ship.radar_bonus:
+            bonus_count = len(self.player_ship._applied_bonuses) + (1 if self.player_ship.radar_bonus else 0)
+            bonus_text = self.font_tiny.render(f"Bonusy: {bonus_count}x", True, GREEN)
+            self.screen.blit(bonus_text, (status_x, 25))
         if self.multiplayer and self.network and self.network.connected:
             mp_text = self.font_tiny.render(f"MP: {len(self.remote_players)} hracu", True, CYAN)
             self.screen.blit(mp_text, (status_x, 40))
