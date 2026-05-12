@@ -748,7 +748,7 @@ class SpaceRangersGame:
                     self.player_ship.vy = 0
                     self.player_ship.direction = math.atan2(self.mouse_world_y - self.player_ship.y, self.mouse_world_x - self.player_ship.x)
                     self.player_ship.apply_thrust(self.player_ship.direction, 2.0)
-                    self.player_ship.fuel = max(0, self.player_ship.fuel - 0.05)
+                    self.player_ship.fuel = max(0, self.player_ship.fuel - 0.02)
                 elif self.state == "TRADING" and self.docked_planet:
                     self.handle_trading_click(event.pos)
                 elif self.state == "UPGRADE":
@@ -1196,7 +1196,7 @@ class SpaceRangersGame:
             target_dir = math.atan2(dy, dx)
             self.player_ship.rotate_to(target_dir)
             self.player_ship.apply_thrust(self.player_ship.direction)
-            self.player_ship.fuel = max(0, self.player_ship.fuel - 0.02)
+            self.player_ship.fuel = max(0, self.player_ship.fuel - 0.008)
         self.player_ship.update()
         self.camera_x = self.player_ship.x
         self.camera_y = self.player_ship.y
