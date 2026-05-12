@@ -1,6 +1,14 @@
 """Space Rangers - Havirov Coin Edition"""
-import pygame, sys, os, json, random, math, itertools, time, hashlib, threading
-sys.path.insert(0, "/home/davidprosek/Downloads/Havirov-Coin-master")
+import pygame, sys, os, json, random, math, time, threading
+
+HAVIROV_COIN_DIR = os.path.expanduser("~/Downloads/Havirov-Coin-master")
+if os.path.exists(HAVIROV_COIN_DIR):
+    sys.path.insert(0, HAVIROV_COIN_DIR)
+else:
+    HAVIROV_COIN_DIR = os.path.join(os.path.dirname(__file__), "..", "Havirov-Coin-master")
+    if os.path.exists(HAVIROV_COIN_DIR):
+        sys.path.insert(0, HAVIROV_COIN_DIR)
+
 from miner import CPUMiner
 from network import NetworkClient, get_random_ship_name
 pygame.init()
@@ -38,10 +46,10 @@ RADAR_RANGE = 1500
 RADAR_SIZE = 180
 RADAR_POS = (SCREEN_WIDTH - RADAR_SIZE - 20, 100)
 
-WALLET_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/wallet.dat"
-MINER_CONFIG_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/miner_config.json"
-MINER_SHARES_PATH = "/home/davidprosek/Downloads/Havirov-Coin-master/valid_shares.log"
-SAVE_PATH = "/home/davidprosek/Space-Rangers/savegame.json"
+WALLET_PATH = os.path.join(HAVIROV_COIN_DIR, "wallet.dat")
+MINER_CONFIG_PATH = os.path.join(HAVIROV_COIN_DIR, "miner_config.json")
+MINER_SHARES_PATH = os.path.join(HAVIROV_COIN_DIR, "valid_shares.log")
+SAVE_PATH = os.path.join(os.path.dirname(__file__), "savegame.json")
 
 class WalletInterface:
     def __init__(self):
@@ -52,11 +60,7 @@ class WalletInterface:
     
     def create_wallet(self, name="Space Ranger"):
         """Create a new wallet"""
-        import hashlib
-        import random
         import string
-        
-        # Generate a random wallet address
         address = ''.join(random.choices(string.hexdigits.lower(), k=40))
         
         wallet_data = {
@@ -141,14 +145,16 @@ ALL_ITEMS = []
 for category, items in ITEM_CATEGORIES.items():
     for item in items:
         ALL_ITEMS.append((item, category))
-# Add generated variations
 base_names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Theta", "Iota", "Kappa", "Lambda",
-              "Sigma", "Omega", "Phi", "Psi", "Tau", "Mu", "Nu", "Xi", "Pi", "Rho",
-              "Chi", "Psi", "Tau", "Upsilon", "Omicron", "Xi", "Pi", "Rho", "Sigma", "Tau"]
+              "Mu", "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi",
+              "Chi", "Psi", "Omega", "Nova", "Prime", "Star", "Nebula", "Void", "Crystal", "Shadow"]
 for i in range(600 - len(ALL_ITEMS)):
     cat = list(ITEM_CATEGORIES.keys())[i % len(ITEM_CATEGORIES)]
     suffix = base_names[i % len(base_names)]
     ALL_ITEMS.append((f"{cat[:-1]} {suffix} {i}", cat))
+
+# Pre-computed item name -> category map
+ITEM_CATEGORY_MAP = {name: cat for name, cat in ALL_ITEMS}
 
 class Planet:
     def __init__(self, name, x, y, station_type="PLANET"):
@@ -198,7 +204,7 @@ class Planet:
             "OBCHODNI_STANICE": ["Minerály", "Potraviny", "Zbraně", "Technologie", "Léky", "Luxus"]
         }
         categories = cat_map.get(self.station_type, ["Minerály", "Potraviny"])
-        available = [item for item, cat in ALL_ITEMS if cat in categories]
+        available = [name for name, cat in ITEM_CATEGORY_MAP.items() if cat in categories]
         for item in random.sample(available, min(count, len(available))):
             goods[item] = random.randint(10, 80)
         return goods
@@ -212,12 +218,11 @@ class Planet:
             "OBCHODNI_STANICE": ["Minerály", "Potraviny", "Zbraně", "Technologie", "Léky", "Luxus"]
         }
         categories = cat_map.get(self.station_type, ["Minerály"])
-        return [item for item, cat in ALL_ITEMS if cat in categories]
+        return [name for name, cat in ITEM_CATEGORY_MAP.items() if cat in categories]
     
     def _generate_new_goods(self):
         """Generovani noveho zbozi pro udrzeni nekonecneho hraní"""
-        if len(self.available_items) < 50:  # Omezeni maximalniho poctu polozek
-            # Vyber nahodnou kategorii
+        if len(self.goods) < 50:
             cat_map = {
                 "PLANET": ["Minerály", "Potraviny", "Léky"],
                 "DOCKY": ["Zbraně", "Technologie", "Komponenty"],
@@ -228,18 +233,13 @@ class Planet:
             available_categories = cat_map.get(self.station_type, ["Minerály"])
             selected_category = random.choice(available_categories)
             
-            # Najdi vsechny polozky v dane kategorii
-            category_items = [item for item, cat in ALL_ITEMS if cat == selected_category]
+            category_items = [name for name, cat in ITEM_CATEGORY_MAP.items() if cat == selected_category]
             
-            # Najdi polozky, ktere nejsou v aktualni nabidce
-            new_items = [item for item in category_items if item not in self.available_items]
+            new_items = [item for item in category_items if item not in self.goods]
             
             if new_items:
-                # Pridej nahodnou novou polozku
                 new_item = random.choice(new_items)
-                self.available_items.append(new_item)
-                self.prices[new_item] = self._get_base_price(new_item) + random.randint(-50, 50)
-                self.goods[new_item] = random.randint(5, 30)  # Pocet dostupnych kusu
+                self.goods[new_item] = random.randint(5, 30)
 
     def _generate_prices(self):
         prices = {}
@@ -289,7 +289,6 @@ class Planet:
     
     def update_prices(self):
         """Aktualizace cen na zaklade poptavky a nabidky"""
-        import time
         current_time = time.time()
         
         # Aktualizace kazdych 30 sekund
@@ -333,7 +332,9 @@ class Planet:
             "Luxus": 800,
             "Komponenty": 120
         }
-        category = next((cat for cat, items in ITEM_CATEGORIES.items() if item in items), "Neznámé")
+        category = ITEM_CATEGORY_MAP.get(item)
+        if category is None:
+            category = next((cat for cat, items in ITEM_CATEGORIES.items() if item in items), "Neznámé")
         return base_prices.get(category, 100)
     
     def record_trade(self, item, amount):
@@ -487,7 +488,6 @@ class EnemyShip:
         self.color = (160, 30, 30) if ship_type == "Pirate" else (110, 30, 30)
         self.size = 12
         self.drag = 0.96
-        self.radar_range = 500  # Omezeny radar videni
         self.target_direction = random.uniform(0, 2 * math.pi)
         self.direction_change_timer = random.randint(60, 180)
 
@@ -503,7 +503,7 @@ class EnemyShip:
             self.direction_change_timer = random.randint(60, 180)
         
         # Pokud je hrac v radarovem dosahu, trochu inteligentneji se chovej
-        if dist <= self.radar_range:
+        if dist <= RADAR_RANGE:
             # 70% nahodny pohyb, 30% sledovani hrace
             if random.random() < 0.7:
                 self.direction = self.target_direction
@@ -535,8 +535,8 @@ class EnemyShip:
         self.vy *= self.drag
         self.shoot_timer -= 1
         
-        # Strelba pouze pokud je hrac blizko a v radarovem dosahu
-        if dist < 250 and dist <= self.radar_range and self.shoot_timer <= 0:
+        # Strelba pouze pokud je hrac blizko
+        if dist < 250 and self.shoot_timer <= 0:
             self.shoot_timer = 50
             return True
         return False
@@ -560,7 +560,7 @@ class EnemyShip:
         rel_x = self.x - player_x
         rel_y = self.y - player_y
         dist = math.sqrt(rel_x**2 + rel_y**2)
-        if dist <= self.radar_range:  # Zobrazeni pouze v omezenem radarovem dosahu
+        if dist <= RADAR_RANGE:
             radar_screen_x = radar_x + RADAR_SIZE // 2 + int(rel_x * radar_scale)
             radar_screen_y = radar_y + RADAR_SIZE // 2 + int(rel_y * radar_scale)
             pygame.draw.circle(screen, BRIGHT_RED, (radar_screen_x, radar_screen_y), 2)
@@ -587,7 +587,7 @@ class SpaceRangersGame:
         self.network = None
         self.multiplayer = False
         self.remote_players = {}
-        self.miner_dir = "/home/davidprosek/Downloads/Havirov-Coin-master"
+        self.miner_dir = HAVIROV_COIN_DIR
         self.mining_stats = {
             "hash_count": 0,
             "share_count": 0,
@@ -704,8 +704,8 @@ class SpaceRangersGame:
                     self.map_zoom *= (1.1 if event.y > 0 else 0.9)
                     self.map_zoom = max(0.1, min(2.0, self.map_zoom))
                 elif self.state == "TRADING" and self.docked_planet:
-                    max_scroll = max(0, len(self.docked_planet.available_items) - 10)
-                    max_cargo_scroll = max(0, len(self.player_ship.cargo) - 8)
+                    max_scroll = max(0, len(self.docked_planet.available_items) - 9)
+                    max_cargo_scroll = max(0, len(self.player_ship.cargo) - 9)
                     if max_scroll > 0:
                         self.trading_scroll = max(0, min(max_scroll, self.trading_scroll - event.y))
                     if max_cargo_scroll > 0:
@@ -730,8 +730,6 @@ class SpaceRangersGame:
                 self.handle_credits_events(event)
             elif self.state == "MINING_LOG":
                 self.handle_mining_log_events(event)
-            elif self.state == "MINING":
-                self.handle_mining_events(event)
             elif self.state == "MULTIPLAYER":
                 self.handle_multiplayer_events(event)
 
@@ -836,12 +834,9 @@ class SpaceRangersGame:
             elif event.key == pygame.K_f:
                 self.state = "BUY_FUEL"
             elif event.key == pygame.K_k:
-                if self.state == "DOCKED":
-                    if not self.mining_active:
-                        self.start_mining()
-                    else:
-                        self.stop_mining()
-                elif self.state == "MINING":
+                if not self.mining_active:
+                    self.start_mining()
+                else:
                     self.stop_mining()
 
     def handle_trading_events(self, event):
@@ -853,31 +848,30 @@ class SpaceRangersGame:
                 self.trading_scroll = max(0, self.trading_scroll - 1)
                 self.cargo_scroll = max(0, self.cargo_scroll - 1)
             elif event.key == pygame.K_DOWN:
-                # Scroll dolu
-                max_scroll = max(0, len(self.docked_planet.available_items) - 10) if self.docked_planet else 0
-                max_cargo_scroll = max(0, len(self.player_ship.cargo) - 8)
+                max_scroll = max(0, len(self.docked_planet.available_items) - 9) if self.docked_planet else 0
+                max_cargo_scroll = max(0, len(self.player_ship.cargo) - 9)
                 self.trading_scroll = min(max_scroll, self.trading_scroll + 1)
                 self.cargo_scroll = min(max_cargo_scroll, self.cargo_scroll + 1)
             elif event.key == pygame.K_1:
-                self.buy_specific_item("Ruda")
+                self._quick_buy_category("Minerály")
             elif event.key == pygame.K_2:
-                self.buy_specific_item("Zbrane")
+                self._quick_buy_category("Zbraně")
             elif event.key == pygame.K_3:
-                self.buy_specific_item("Potraviny")
+                self._quick_buy_category("Potraviny")
             elif event.key == pygame.K_4:
-                self.buy_specific_item("Technologie")
+                self._quick_buy_category("Technologie")
             elif event.key == pygame.K_5:
-                self.buy_specific_item("Léky")
+                self._quick_buy_category("Léky")
             elif event.key == pygame.K_6:
-                self.buy_specific_item("Krystaly")
+                self._quick_buy_category("Luxus")
             elif event.key == pygame.K_s:
                 self.sell_goods()
-            elif event.key == pygame.K_7 and "Ruda" in self.player_ship.cargo:
-                self.sell_goods("Ruda")
-            elif event.key == pygame.K_8 and "Zbrane" in self.player_ship.cargo:
-                self.sell_goods("Zbrane")
-            elif event.key == pygame.K_9 and "Potraviny" in self.player_ship.cargo:
-                self.sell_goods("Potraviny")
+            elif event.key == pygame.K_7:
+                self._quick_sell_first()
+            elif event.key == pygame.K_8:
+                self._quick_sell_first()
+            elif event.key == pygame.K_9:
+                self._quick_sell_first()
 
     def handle_map_events(self, event):
         if event.type == pygame.KEYDOWN:
@@ -987,13 +981,6 @@ class SpaceRangersGame:
             if event.key == pygame.K_ESCAPE or event.key == pygame.K_c:
                 self.state = "MENU" if self.state == "CREDITS" else "GAME"
     
-    def handle_mining_events(self, event):
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_k:
-                self.stop_mining()
-            elif event.key == pygame.K_ESCAPE:
-                self.stop_mining()
-
     def handle_mining_log_events(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -1183,7 +1170,7 @@ class SpaceRangersGame:
             self.mining_thread_ref = threading.Thread(target=run_cpuminer, daemon=True)
             self.mining_thread_ref.start()
 
-            self.state = "MINING"
+            self.mining_stats["start_time"] = time.time()
             self.show_message("Real mining started! Press K to stop.")
 
         except Exception as e:
@@ -1211,7 +1198,7 @@ class SpaceRangersGame:
             if hasattr(self, '_orig_dir'):
                 os.chdir(self._orig_dir)
 
-            elapsed = time.time() - self.mining_stats["start_time"]
+            elapsed = time.time() - self.mining_stats.get("start_time", time.time())
 
             if self.cpuminer is not None:
                 self.mining_stats["hash_count"] = getattr(self.cpuminer, 'hash_count', 0)
@@ -1279,7 +1266,6 @@ class SpaceRangersGame:
 
         finally:
             self.mining_active = False
-            self.state = "GAME"
             self.cpuminer = None
             self.mining_thread_ref = None
 
@@ -1297,36 +1283,35 @@ class SpaceRangersGame:
             # Aktualizace cen pri obchodovani
             self.docked_planet.update_prices()
         elif self.state == "TRADING" and not self.docked_planet:
-            # Pokud neni docovany, vratit se do DOCKED modu
             self.state = "DOCKED"
-        elif self.state == "MINING":
-            if self.mining_active and self.cpuminer is not None:
-                cm = self.cpuminer
-                self.mining_stats["hash_count"] = getattr(cm, 'hash_count', 0)
-                self.mining_stats["share_count"] = getattr(cm, 'shared_count', 0) + getattr(cm, 'accepted', 0)
-                self.mining_stats["total_earned"] = getattr(cm, 'total_claimed', 0)
-                self.mining_stats["difficulty"] = getattr(cm, 'current_difficulty', 6000000)
 
-                current_hashrate = getattr(cm, '_get_hashrate', lambda: 0)()
-                self.mining_stats["hashrate"] = current_hashrate
+        if self.mining_active and self.cpuminer is not None:
+            cm = self.cpuminer
+            self.mining_stats["hash_count"] = getattr(cm, 'hash_count', 0)
+            self.mining_stats["share_count"] = getattr(cm, 'shared_count', 0) + getattr(cm, 'accepted', 0)
+            self.mining_stats["total_earned"] = getattr(cm, 'total_claimed', 0)
+            self.mining_stats["difficulty"] = getattr(cm, 'current_difficulty', self.mining_stats.get("difficulty", 6000000))
 
-                if not hasattr(self, 'displayed_hashrate'):
-                    self.displayed_hashrate = current_hashrate
-                else:
-                    alpha = 0.1
-                    self.displayed_hashrate = (alpha * current_hashrate +
-                                             (1 - alpha) * self.displayed_hashrate)
+            current_hashrate = getattr(cm, '_get_hashrate', lambda: 0)()
+            self.mining_stats["hashrate"] = current_hashrate
 
-                if current_hashrate > self.mining_stats["max_hashrate"]:
-                    self.mining_stats["max_hashrate"] = current_hashrate
+            if not hasattr(self, 'displayed_hashrate'):
+                self.displayed_hashrate = current_hashrate
+            else:
+                alpha = 0.1
+                self.displayed_hashrate = (alpha * current_hashrate +
+                                         (1 - alpha) * self.displayed_hashrate)
 
-                if cm.shared_count > 0:
-                    prev = getattr(self, '_last_shown_shares', 0)
-                    if cm.shared_count > prev:
-                        self.mining_stats["last_share_time"] = time.time()
-                        self._last_shown_shares = cm.shared_count
-                        self.wallet.load_wallet()
-                        self.credits = self.wallet.get_balance()
+            if current_hashrate > self.mining_stats["max_hashrate"]:
+                self.mining_stats["max_hashrate"] = current_hashrate
+
+            if cm.shared_count > 0:
+                prev = getattr(self, '_last_shown_shares', 0)
+                if cm.shared_count > prev:
+                    self.mining_stats["last_share_time"] = time.time()
+                    self._last_shown_shares = cm.shared_count
+                    self.wallet.load_wallet()
+                    self.credits = self.wallet.get_balance()
             
         if self.message_timer > 0:
             self.message_timer -= 1
@@ -1501,6 +1486,25 @@ class SpaceRangersGame:
         except Exception as e:
             print(f"Chyba pri nakupu {item}: {e}")
             self.show_message("Chyba pri nakupe!")
+
+    def _quick_buy_category(self, category):
+        if not self.docked_planet:
+            self.show_message("Neni vybrana zadna stanice!")
+            return
+        available = [item for item in self.docked_planet.available_items
+                     if ITEM_CATEGORY_MAP.get(item) == category
+                     and self.docked_planet.goods.get(item, 0) > 0]
+        if available:
+            self.buy_specific_item(available[0])
+        else:
+            self.show_message(f"Zadne {category} neni skladem!", 90)
+
+    def _quick_sell_first(self):
+        if not self.player_ship.cargo:
+            self.show_message("Nemate zadny naklad k prodeji!", 90)
+            return
+        item = list(self.player_ship.cargo.keys())[0]
+        self.sell_goods(item)
 
     def sell_goods(self, item=None):
         if not self.docked_planet:
@@ -1753,7 +1757,6 @@ class SpaceRangersGame:
         elif self.state == "UPGRADE": self.draw_upgrade()
         elif self.state == "BUY_FUEL": self.draw_buy_fuel()
         elif self.state == "CREDITS": self.draw_credits()
-        elif self.state == "MINING": self.draw_mining()
         elif self.state == "MINING_LOG": self.draw_mining_log()
         elif self.state == "MULTIPLAYER": self.draw_multiplayer_menu()
         if self.message:
@@ -1762,9 +1765,14 @@ class SpaceRangersGame:
 
     def draw_message(self):
         text = self.font_medium.render(self.message, True, BRIGHT_YELLOW)
-        bg_rect = pygame.Rect(SCREEN_WIDTH // 2 - text.get_width() // 2 - 15, 45, text.get_width() + 30, text.get_height() + 10)
-        pygame.draw.rect(self.screen, (0,0,0,200), bg_rect)
-        pygame.draw.rect(self.screen, BORDER_COLOR, bg_rect, 2)
+        bg_w = text.get_width() + 30
+        bg_h = text.get_height() + 10
+        bg_x = SCREEN_WIDTH // 2 - bg_w // 2
+        bg_y = 45
+        bg_surface = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 200))
+        self.screen.blit(bg_surface, (bg_x, bg_y))
+        pygame.draw.rect(self.screen, BORDER_COLOR, (bg_x, bg_y, bg_w, bg_h), 2)
         self.screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 50))
 
     def draw_radar(self):
@@ -1800,19 +1808,60 @@ class SpaceRangersGame:
                 ry = radar_y + RADAR_SIZE // 2 + int(rel_y * radar_scale)
                 pygame.draw.circle(self.screen, (255, 255, 100), (rx, ry), 2)
         self.player_ship.draw_on_radar(self.screen, radar_x, radar_y, radar_scale)
-        legend_x = 15
-        legend_y = SCREEN_HEIGHT - 120
+
+    def draw_mining_hud_and_legend(self):
+        radar_x, radar_y = RADAR_POS
+        panel_x = radar_x
+        panel_y = radar_y + RADAR_SIZE + 8
+        panel_w = RADAR_SIZE
+        panel_h = 200
+
+        panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        panel.fill((5, 5, 20, 200))
+        self.screen.blit(panel, (panel_x, panel_y))
+        pygame.draw.rect(self.screen, BORDER_COLOR, (panel_x, panel_y, panel_w, panel_h), 1)
+
+        y_offset = panel_y + 4
+        if self.mining_active:
+            elapsed = time.time() - self.mining_stats.get("start_time", time.time())
+            elapsed_str = f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+            hash_rate = self.displayed_hashrate if hasattr(self, 'displayed_hashrate') else 0
+
+            mining_lines = [
+                ("MINING", BRIGHT_GREEN),
+                (f"Hash: {hash_rate:,.0f} H/s", GREEN),
+                (f"Shares: {self.mining_stats['share_count']}", YELLOW),
+                (f"Earned: {self.mining_stats['total_earned']:.4f} HVC", CYAN),
+                (f"Time: {elapsed_str}", LIGHT_GRAY),
+                ("", WHITE),
+            ]
+        else:
+            mining_lines = [
+                ("MINING [K]", GRAY),
+                ("stopped", GRAY),
+                ("", WHITE),
+            ]
+
+        for label, color in mining_lines:
+            rendered = self.font_tiny.render(label, True, color)
+            self.screen.blit(rendered, (panel_x + 6, y_offset))
+            y_offset += 14
+
+        y_offset += 2
         legend_items = [
             ("[M] Mapa", BRIGHT_YELLOW),
             ("[F] Palivo", FUEL_COLOR),
+            ("[K] Mining", BRIGHT_GREEN),
+            ("[L] Mining Log", CYAN),
             ("[Q] Ukoly", CYAN),
             ("[U] Upgrade", BRIGHT_BLUE),
             ("[J] Seber item", GREEN),
             ("[SPACE] Strelba", BRIGHT_RED),
         ]
-        for i, (text, color) in enumerate(legend_items):
+        for text, color in legend_items:
             rendered = self.font_tiny.render(text, True, color)
-            self.screen.blit(rendered, (legend_x, legend_y + i * 16))
+            self.screen.blit(rendered, (panel_x + 6, y_offset))
+            y_offset += 14
 
     def draw_menu(self):
         # Animovane pozadi
@@ -2000,6 +2049,7 @@ class SpaceRangersGame:
         self.draw_top_panel()
         self.draw_game_controls()
         self.draw_radar()
+        self.draw_mining_hud_and_legend()
         
         # Strelba cooldown
         if self.player_ship.last_shot > 0:
@@ -2198,7 +2248,6 @@ class SpaceRangersGame:
             visible_items = self.docked_planet.available_items[scroll_offset:scroll_offset + 9]
             for i, item in enumerate(visible_items):
                 price = self.docked_planet.prices.get(item, 100)
-                category = next((cat for cat, items in ITEM_CATEGORIES.items() if item in items), "Neznámé")
                 stock = self.docked_planet.goods.get(item, 0)
                 in_stock = stock > 0
 
@@ -2570,193 +2619,6 @@ class SpaceRangersGame:
             rendered = self.font_small.render(text, True, color)
             self.screen.blit(rendered, (SCREEN_WIDTH // 2 - 250, 180 + i * 25))
 
-    def draw_mining(self):
-        """Draw the enhanced mining interface"""
-        self.screen.fill(BLACK)
-        
-        # Animated background with mining theme
-        for sx, sy, size in self.star_field[:300]:
-            screen_x = int(sx * 0.15) % SCREEN_WIDTH
-            screen_y = int(sy * 0.15) % SCREEN_HEIGHT
-            # Mining-themed colors
-            if size > 2:
-                color = (100, 150, 200)  # Blue tint
-            else:
-                color = (50, 50, 100)    # Dark blue
-            pygame.draw.circle(self.screen, color, (screen_x, screen_y), 1)
-        
-        # Animated title with glow effect
-        title_pulse = math.sin(time.time() * 3) * 0.1 + 1.0
-        title = self.font_large.render("HAVIROV COIN MINING", True, BRIGHT_YELLOW)
-        scaled_title = pygame.transform.scale(title, (int(title.get_width() * title_pulse), int(title.get_height() * title_pulse)))
-        self.screen.blit(scaled_title, (SCREEN_WIDTH // 2 - scaled_title.get_width() // 2, 30))
-        
-        # Wallet info with address
-        wallet_text = self.font_medium.render(f"Wallet: {self.wallet.address[:16]}...{self.wallet.address[-8:]}", True, BRIGHT_GREEN)
-        self.screen.blit(wallet_text, (SCREEN_WIDTH // 2 - wallet_text.get_width() // 2, 80))
-        
-        # Enhanced stats panel
-        elapsed = time.time() - self.mining_stats["start_time"]
-        elapsed_str = f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
-        
-        # Calculate stats
-        hash_rate = self.displayed_hashrate if hasattr(self, 'displayed_hashrate') else self.mining_stats["hashrate"]
-        hash_rate_str = f"{hash_rate:,.0f} H/s" if hash_rate > 0 else "Starting..."
-        
-        # Main stats panel with gradient effect
-        stats_panel = pygame.Surface((700, 290), pygame.SRCALPHA)
-        stats_panel.fill((5, 15, 35, 230))
-        self.screen.blit(stats_panel, (SCREEN_WIDTH // 2 - 350, 130))
-        pygame.draw.rect(self.screen, BORDER_COLOR, (SCREEN_WIDTH // 2 - 350, 130, 700, 290), 3)
-        
-        # Enhanced stats with icons and real-time calculations
-        efficiency = (self.mining_stats['share_count'] / max(1, self.mining_stats['hash_count'])) * 100
-        shares_per_minute = (self.mining_stats['share_count'] / max(1, elapsed/60))
-        
-        # Calculate current difficulty level
-        difficulty_level = "Easy" if self.mining_stats['difficulty'] < 5000000 else \
-                          "Medium" if self.mining_stats['difficulty'] < 10000000 else "Hard"
-        
-        # Color coding for difficulty
-        difficulty_colors = {"Easy": GREEN, "Medium": YELLOW, "Hard": RED}
-        difficulty_color = difficulty_colors.get(difficulty_level, WHITE)
-        
-        # Calculate estimated time to next share
-        time_to_next_share = "Calculating..."
-        if shares_per_minute > 0:
-            time_to_next_share = f"{60/shares_per_minute:.1f}s"
-        elif self.mining_stats['share_count'] > 0:
-            time_to_next_share = "Unknown"
-        else:
-            time_to_next_share = "No shares yet"
-        
-        stats = [
-            ("Mining Time", elapsed_str, CYAN),
-            ("Hash Rate", hash_rate_str, GREEN),
-            ("Total Hashes", f"{self.mining_stats['hash_count']:,}", BRIGHT_BLUE),
-            ("Shares Found", f"{self.mining_stats['share_count']}", YELLOW),
-            ("Difficulty", f"{difficulty_level}", difficulty_color),
-            ("Total Earned", f"{self.mining_stats['total_earned']:.8f} HVC", BRIGHT_GREEN),
-            ("Balance", f"{self.credits:.8f} HVC", GREEN),
-        ]
-        
-        for i, (label, value, color) in enumerate(stats):
-            y_pos = 160 + i * 35
-            
-            # Label
-            label_text = self.font_small.render(label, True, WHITE)
-            self.screen.blit(label_text, (SCREEN_WIDTH // 2 - 330, y_pos))
-            
-            # Value with emphasis
-            if "Hash Rate" in label and hash_rate > 0:
-                # Animated hash rate display
-                hash_variation = math.sin(time.time() * 5) * 0.1 + 1.0
-                value_text = self.font_medium.render(f"{int(hash_rate * hash_variation):,} H/s", True, color)
-            else:
-                value_text = self.font_medium.render(str(value), True, color)
-            self.screen.blit(value_text, (SCREEN_WIDTH // 2 + 50, y_pos))
-        
-        # Progress bar at bottom of stats panel
-        progress_y = 385
-        progress_bg = pygame.Rect(SCREEN_WIDTH // 2 - 300, progress_y, 600, 20)
-        pygame.draw.rect(self.screen, DARK_GRAY, progress_bg)
-        pygame.draw.rect(self.screen, BORDER_COLOR, progress_bg, 1)
-
-        progress = (elapsed % 60) / 60
-        progress_width = int(600 * progress)
-        for i in range(progress_width):
-            alpha = int(255 * (i / max(1, progress_width)))
-            color = (0, int(150 + alpha/4), 100)
-            pygame.draw.line(self.screen, color,
-                           (SCREEN_WIDTH // 2 - 298 + i, progress_y + 2),
-                           (SCREEN_WIDTH // 2 - 298 + i, progress_y + 18))
-
-        # Visualization area below stats panel
-        viz_y = 440
-
-        # Difficulty bar
-        if self.mining_active:
-            difficulty_ratio = (self.mining_stats['difficulty'] - 3000000) / 12000000
-            difficulty_ratio = max(0, min(1, difficulty_ratio))
-
-            diff_bg = pygame.Rect(SCREEN_WIDTH // 2 - 200, viz_y, 400, 16)
-            pygame.draw.rect(self.screen, DARK_GRAY, diff_bg)
-            pygame.draw.rect(self.screen, BORDER_COLOR, diff_bg, 1)
-
-            fill_width = int(400 * difficulty_ratio)
-            for i in range(fill_width):
-                intensity = int(255 * (i / max(1, fill_width)))
-                color = (intensity, 255 - intensity, 0)
-                pygame.draw.line(self.screen, color,
-                               (SCREEN_WIDTH // 2 - 198 + i, viz_y + 2),
-                               (SCREEN_WIDTH // 2 - 198 + i, viz_y + 14))
-
-            diff_text = self.font_tiny.render(f"Difficulty: {self.mining_stats['difficulty']:,}", True, WHITE)
-            self.screen.blit(diff_text, (SCREEN_WIDTH // 2 - diff_text.get_width() // 2, viz_y + 18))
-
-        # Animated mining beam
-        viz_center_y = viz_y + 55
-        if self.mining_active:
-            beam_intensity = math.sin(time.time() * 8) * 0.5 + 0.5
-            beam_height = int(40 + beam_intensity * 20)
-
-            beam_surface = pygame.Surface((16, beam_height), pygame.SRCALPHA)
-            beam_alpha = int(180 * beam_intensity)
-            beam_color = (0, 255, 150, beam_alpha)
-            pygame.draw.rect(beam_surface, beam_color, (0, 0, 16, beam_height))
-            self.screen.blit(beam_surface, (SCREEN_WIDTH // 2 - 8, viz_center_y - beam_height // 2))
-
-            for i in range(int(beam_intensity * 10)):
-                x = SCREEN_WIDTH // 2 + random.randint(-60, 60)
-                y = viz_center_y + random.randint(-20, 20)
-                pygame.draw.circle(self.screen, (150, 255, 150, int(255 * beam_intensity)),
-                                 (x, y), 2)
-
-        # Session + status
-        session_y = viz_y + 80
-        if self.mining_active:
-            session_time = int(elapsed)
-            session_status = f"Session: {session_time // 60:02d}:{session_time % 60:02d}"
-            status_text = self.font_tiny.render(session_status, True, CYAN)
-            self.screen.blit(status_text, (SCREEN_WIDTH // 2 - status_text.get_width() // 2, session_y))
-
-            pulse = math.sin(time.time() * 6) * 0.3 + 0.7
-            status = "● MINING ACTIVE"
-            status_color = BRIGHT_GREEN
-            status_glow = pygame.Surface((120, 20), pygame.SRCALPHA)
-            glow_alpha = int(80 * pulse)
-            pygame.draw.rect(status_glow, (*BRIGHT_GREEN, glow_alpha), (0, 0, 120, 20))
-            self.screen.blit(status_glow, (SCREEN_WIDTH // 2 - 60, session_y + 22))
-        else:
-            status = "○ MINING STOPPED"
-            status_color = RED
-
-        status_label = self.font_medium.render(status, True, status_color)
-        self.screen.blit(status_label, (SCREEN_WIDTH // 2 - status_label.get_width() // 2, session_y + 22))
-
-        # Controls at bottom
-        controls_y = SCREEN_HEIGHT - 80
-        controls = [
-            ("[K] Stop Mining", BRIGHT_RED),
-            ("[ESC] Return to Game", WHITE),
-            ("REAL CPU MINER", GREEN)
-        ] if self.mining_active else [
-            ("[K] Stop Mining", BRIGHT_RED),
-            ("[ESC] Return to Game", WHITE)
-        ]
-
-        for i, (text, color) in enumerate(controls):
-            control_text = self.font_small.render(text, True, color)
-            self.screen.blit(control_text, (SCREEN_WIDTH // 2 - 100, controls_y + i * 25))
-
-        # Share notification at wallet line
-        if self.mining_stats["share_count"] > 0:
-            lst = self.mining_stats.get("last_share_time", 0)
-            last_share_time = time.time() - lst if lst > 0 else None
-            if last_share_time is not None and last_share_time < 2:
-                share_text = self.font_small.render("SHARE FOUND!", True, YELLOW)
-                self.screen.blit(share_text, (SCREEN_WIDTH // 2 - share_text.get_width() // 2, 90))
-
     def draw_mining_log(self):
         """Draw the mining statistics and history screen"""
         self.screen.fill(BLACK)
@@ -2908,7 +2770,7 @@ class SpaceRangersGame:
             self.screen.blit(status_text, (status_x, 40))
 
     def draw_game_controls(self):
-        controls = ["[M] Mapa", "[F] Palivo", "[Q] Ukoly", "[U] Vylepseni", "[K] Mining", "[L] Mining Log", "[SPACE] Strelba", "[ESC] Menu"]
+        controls = ["[C] Kredity", "[B] Wallet", "[ESC] Menu"]
         for i, text in enumerate(controls):
             rendered = self.font_tiny.render(text, True, BRIGHT_YELLOW)
             self.screen.blit(rendered, (SCREEN_WIDTH - 150, 10 + i * 20))
