@@ -872,7 +872,7 @@ class SpaceRangersGame:
                 if self.load_game():
                     self.show_message(f"Hra nactena! Pozice: [{int(self.player_ship.x)},{int(self.player_ship.y)}]", 180)
                 else:
-                    self.show_message(f"Wallet nacten! Zustatek: {self.credits} HVC", 180)
+                    self.show_message(f"Wallet nacten! Zustatek: {self.credits:.4f} HVC", 180)
                 self.state = "GAME"
             elif event.key == pygame.K_3:
                 self.state = "CREDITS"
@@ -1685,23 +1685,23 @@ class SpaceRangersGame:
         dx = planet.x - self.player_ship.x
         dy = planet.y - self.player_ship.y
         dist = math.sqrt(dx**2 + dy**2)
-        cost = int(dist / 100)
+        cost = dist / 1000  # Snížená cena teleportace
         if self.wallet.subtract_credits(cost):
             self.player_ship.x = planet.x + 50
             self.player_ship.y = planet.y
             self.camera_x = self.player_ship.x
             self.camera_y = self.player_ship.y
             self.credits = self.wallet.get_balance()
-            self.show_message(f"Teleport na {planet.name} za {cost} HVC")
+            self.show_message(f"Teleport na {planet.name} za {cost:.4f} HVC")
         else:
-            self.show_message(f"Nedostatek kreditu! Potreba: {cost} HVC")
+            self.show_message(f"Nedostatek kreditu! Potreba: {cost:.4f} HVC")
 
     def buy_fuel(self, amount):
         cost = amount * 2
         if self.wallet.subtract_credits(cost):
             self.player_ship.fuel = min(self.player_ship.max_fuel, self.player_ship.fuel + amount)
             self.credits = self.wallet.get_balance()
-            self.show_message(f"Nakoupeno {amount} paliva za {cost} HVC")
+            self.show_message(f"Nakoupeno {amount} paliva za {cost:.4f} HVC")
             self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
@@ -1732,7 +1732,7 @@ class SpaceRangersGame:
                     self.docked_planet.goods[item] = stock - 1
                     self.credits = self.wallet.get_balance()
                     self.docked_planet.record_trade(item, 1)
-                    self.show_message(f"Koupeno {item} za {price} HVC")
+                    self.show_message(f"Koupeno {item} za {price:.4f} HVC")
 
                     self.save_game()
                     if random.random() < 0.3:
@@ -1741,7 +1741,7 @@ class SpaceRangersGame:
                     self.wallet.add_credits(price)
                     self.show_message("Nedostatek mista v nakladu!")
             else:
-                self.show_message(f"Nedostatek kreditu! Potreba: {price} HVC")
+                self.show_message(f"Nedostatek kreditu! Potreba: {price:.4f} HVC")
         except Exception as e:
             print(f"Chyba pri nakupu {item}: {e}")
             self.show_message("Chyba pri nakupe!")
@@ -1797,7 +1797,7 @@ class SpaceRangersGame:
                     self.credits = self.wallet.get_balance()
                     self.docked_planet.goods[item] = self.docked_planet.goods.get(item, 0) + 1
                     self.docked_planet.record_trade(item, -1)
-                    self.show_message(f"Prodano {item} za {price} HVC")
+                    self.show_message(f"Prodano {item} za {price:.4f} HVC")
 
                     self.save_game()
                     if random.random() < 0.2:
@@ -1865,13 +1865,13 @@ class SpaceRangersGame:
         if completed:
             self.wallet.add_credits(quest['reward'])
             self.credits = self.wallet.get_balance()
-            self.show_message(f"Ukol splnen! Ziskani: {quest['reward']} HVC")
+            self.show_message(f"Ukol splnen! Ziskani: {quest['reward']:.4f} HVC")
             self.current_quest = None
             self.quest_progress = {"kill": 0, "collect": 0}
 
     def upgrade_ship(self, upgrade_type):
-        costs = {"hp": 5.0, "shield": 4.0, "speed": 3.0, "cargo": 6.0, "fuel": 3.5}
-        cost = costs.get(upgrade_type, 10.0)
+        costs = {"hp": 0.5, "shield": 0.4, "speed": 0.3, "cargo": 0.6, "fuel": 0.35}
+        cost = costs.get(upgrade_type, 1.0)
         if self.wallet.subtract_credits(cost):
             if upgrade_type == "hp":
                 self.player_ship.max_hp += 20
@@ -1887,38 +1887,40 @@ class SpaceRangersGame:
                 self.player_ship.max_fuel += 50
                 self.player_ship.fuel = self.player_ship.max_fuel
             self.credits = self.wallet.get_balance()
-            self.show_message(f"Vylepseni zakoupeno za {cost} HVC")
+            self.show_message(f"Vylepseni zakoupeno za {cost:.4f} HVC")
             self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
 
     def upgrade_weapon(self, weapon_name, cost):
-        if self.wallet.subtract_credits(cost):
+        # Snížená cena zbraní
+        adjusted_cost = cost / 100
+        if self.wallet.subtract_credits(adjusted_cost):
             if weapon_name not in self.player_ship.weapons:
                 self.player_ship.weapons.append(weapon_name)
                 self.player_ship.shoot_delay = max(5, self.player_ship.shoot_delay - 2)
                 self.credits = self.wallet.get_balance()
-                self.show_message(f"Zbran {weapon_name} zakoupena!")
+                self.show_message(f"Zbran {weapon_name} zakoupena za {adjusted_cost:.4f} HVC!")
                 self.save_game()
         else:
             self.show_message("Nedostatek kreditu!")
 
     def upgrade_engine(self):
-        cost = 800
+        cost = 8.0  # Snížená cena motoru
         if self.wallet.subtract_credits(cost):
             self.player_ship.thrust_power += 0.02
             self.player_ship.max_speed += 0.5
             self.credits = self.wallet.get_balance()
-            self.show_message("Motor vylepsen!")
+            self.show_message(f"Motor vylepsen za {cost:.4f} HVC!")
             self.save_game()
 
     def upgrade_radar(self):
         global RADAR_RANGE
-        cost = 1500
+        cost = 15.0  # Snížená cena radaru
         if self.wallet.subtract_credits(cost):
             RADAR_RANGE = min(3000, RADAR_RANGE + 500)
             self.credits = self.wallet.get_balance()
-            self.show_message(f"Radar vylepsen! Rozsah: {RADAR_RANGE}u")
+            self.show_message(f"Radar vylepsen za {cost:.4f} HVC! Rozsah: {RADAR_RANGE}u")
             self.save_game()
 
     def open_wallet(self):
@@ -2550,7 +2552,7 @@ class SpaceRangersGame:
         station_type = self.docked_planet.get_type_name()
         type_colors = {"Planeta": GREEN, "Doky": BLUE, "Piratsky klub": RED, "Hi-Tech Lab": CYAN, "Obchodni stanice": YELLOW}
         type_color = type_colors.get(station_type, WHITE)
-        type_text = self.font_small.render(f"Typ: {station_type}  |  Kredity: {self.credits:.2f} HVC", True, type_color)
+        type_text = self.font_small.render(f"Typ: {station_type}  |  Kredity: {self.credits:.4f} HVC", True, type_color)
         self.screen.blit(type_text, (ox + 20, oy + 45))
 
         pygame.draw.line(self.screen, BORDER_COLOR, (ox + 20, oy + 70), (ox + ow - 20, oy + 70), 2)
@@ -2569,7 +2571,7 @@ class SpaceRangersGame:
         if self.docked_planet:
             visible_items = self.docked_planet.available_items[scroll_offset:scroll_offset + 9]
             for i, item in enumerate(visible_items):
-                price = self.docked_planet.prices.get(item, 100)
+                price = self.docked_planet.prices.get(item, 0.1)
                 stock = self.docked_planet.goods.get(item, 0)
                 in_stock = stock > 0
 
@@ -2583,7 +2585,7 @@ class SpaceRangersGame:
                 self.screen.blit(item_text, (btn_rect.x + 6, btn_rect.y + 8))
 
                 price_color = GREEN if price < 1.0 else YELLOW if price < 3.0 else RED
-                price_text = self.font_tiny.render(f"{price} HVC", True, price_color if in_stock else GRAY)
+                price_text = self.font_tiny.render(f"{price:.4f} HVC", True, price_color if in_stock else GRAY)
                 self.screen.blit(price_text, (btn_rect.x + col_w - 80, btn_rect.y + 8))
 
                 if in_stock:
@@ -2606,7 +2608,7 @@ class SpaceRangersGame:
 
         if visible_cargo:
             for i, (item, amount) in enumerate(visible_cargo):
-                price = self.docked_planet.prices.get(item, 100)
+                price = self.docked_planet.prices.get(item, 0.1)
                 btn_rect = pygame.Rect(mid_x + 10, oy + 110 + i * 38, col_w, 34)
                 bg_color = (45, 20, 20) if any(b['rect'] == btn_rect for b in self.clickable_buttons) else (35, 15, 15)
                 pygame.draw.rect(self.screen, bg_color, btn_rect)
@@ -2616,7 +2618,7 @@ class SpaceRangersGame:
                 self.screen.blit(item_text, (btn_rect.x + 6, btn_rect.y + 8))
 
                 price_color = GREEN if price < 1.0 else YELLOW if price < 3.0 else RED
-                price_text = self.font_tiny.render(f"{price} HVC", True, price_color)
+                price_text = self.font_tiny.render(f"{price:.4f} HVC", True, price_color)
                 self.screen.blit(price_text, (btn_rect.x + col_w - 70, btn_rect.y + 8))
 
                 def sell_action(item=item):
@@ -2688,7 +2690,7 @@ class SpaceRangersGame:
             quest_text = self.font_small.render(f"{self.current_quest['name']}", True, WHITE)
             self.screen.blit(quest_text, (95, 155))
             
-            reward_text = self.font_tiny.render(f"Odmena: {self.current_quest['reward']} HVC", True, BRIGHT_YELLOW)
+            reward_text = self.font_tiny.render(f"Odmena: {self.current_quest['reward']:.4f} HVC", True, BRIGHT_YELLOW)
             self.screen.blit(reward_text, (95, 175))
             
             # Progress bar
@@ -2775,7 +2777,7 @@ class SpaceRangersGame:
             quest_info = self.font_small.render(f"[{i+1}] {quest['name']}", True, WHITE)
             self.screen.blit(quest_info, (115, 375 + i * 75))
             
-            reward_info = self.font_tiny.render(f"Odmena: {quest['reward']} HVC", True, BRIGHT_GREEN)
+            reward_info = self.font_tiny.render(f"Odmena: {quest['reward']:.4f} HVC", True, BRIGHT_GREEN)
             self.screen.blit(reward_info, (115, 395 + i * 75))
             
             # Typ ukolu
@@ -2813,7 +2815,7 @@ class SpaceRangersGame:
         credits_bg = pygame.Rect(50, 80, 300, 60)
         pygame.draw.rect(self.screen, (0, 50, 0, 150), credits_bg)
         pygame.draw.rect(self.screen, GREEN, credits_bg, 2)
-        credits = self.font_medium.render(f"HVC: {self.credits:.2f}", True, BRIGHT_GREEN)
+        credits = self.font_medium.render(f"HVC: {self.credits:.4f}", True, BRIGHT_GREEN)
         self.screen.blit(credits, (70, 95))
         
         # Lodni statistiky
@@ -2900,7 +2902,7 @@ class SpaceRangersGame:
             
             # Text informace
             name_color = WHITE if can_afford else GRAY
-            text = self.font_small.render(f"{name} - {cost} HVC", True, name_color)
+            text = self.font_small.render(f"{name} - {cost:.4f} HVC", True, name_color)
             self.screen.blit(text, (510, y_pos + 8))
             
             # Popisek
@@ -2927,9 +2929,9 @@ class SpaceRangersGame:
         if up_type in ["hp", "shield", "speed", "cargo", "fuel"]:
             self.upgrade_ship(up_type)
         elif up_type == "weapon":
-            self.upgrade_weapon("Laser II", 1000)
+            self.upgrade_weapon("Laser II", 10.0)
         elif up_type == "weapon2":
-            self.upgrade_weapon("Plazmová puška", 2000)
+            self.upgrade_weapon("Plazmová puška", 20.0)
         elif up_type == "engine":
             self.upgrade_engine()
         elif up_type == "radar":
@@ -3077,7 +3079,7 @@ class SpaceRangersGame:
         credits_bg = pygame.Rect(350, 30, 200, 65)
         pygame.draw.rect(self.screen, (0,50,0,150), credits_bg)
         pygame.draw.rect(self.screen, GREEN, credits_bg, 2)
-        credits_text = self.font_medium.render(f"HVC: {self.credits:.2f}", True, BRIGHT_GREEN)
+        credits_text = self.font_medium.render(f"HVC: {self.credits:.4f}", True, BRIGHT_GREEN)
         self.screen.blit(credits_text, (360,40))
         
         cargo_text = self.font_small.render(f"Cargo: {self.player_ship.get_total_cargo()}/{self.player_ship.max_cargo}", True, CYAN)
