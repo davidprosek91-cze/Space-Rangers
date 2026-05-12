@@ -1358,11 +1358,26 @@ class SpaceRangersGame:
             if hasattr(enemy, 'should_remove') and enemy.should_remove:
                 self.enemies.remove(enemy)
         
-        # Generovani novych piratu pro udrzeni hratelnosti
-        if len(self.enemies) < 15 and random.random() < 0.01:  # 1% sansa kazdy frame
-            x = random.randint(500, 5500)
-            y = random.randint(500, 4000)
-            self.enemies.append(EnemyShip(x, y, "Pirate"))
+        # Generovani novych piratu - vzdy nahodna sance
+        if random.random() < 0.015:
+            if len(self.enemies) < 10 + self.player_ship.level * 2:
+                if random.random() < 0.4:
+                    angle = random.uniform(0, 2 * math.pi)
+                    dist = random.randint(300, 600)
+                    x = self.player_ship.x + dist * math.cos(angle)
+                    y = self.player_ship.y + dist * math.sin(angle)
+                else:
+                    x = random.randint(200, 5800)
+                    y = random.randint(200, 4500)
+                ship_type = "Pirate"
+                if self.player_ship.level >= 3 and random.random() < 0.2:
+                    ship_type = "Elite"
+                enemy = EnemyShip(x, y, ship_type)
+                if ship_type == "Elite":
+                    enemy.hp = 150
+                    enemy.max_hp = 150
+                    enemy.speed = 2.0
+                self.enemies.append(enemy)
         
         self.update_bullets()
         now = time.time()
