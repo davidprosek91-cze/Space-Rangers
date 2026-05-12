@@ -1697,7 +1697,8 @@ class SpaceRangersGame:
             self.show_message(f"Nedostatek kreditu! Potreba: {cost:.4f} HVC")
 
     def buy_fuel(self, amount):
-        cost = amount * 2
+        # Snizeny cena paliva dle nove ekonomiky
+        cost = amount * 0.02  # 2 centy za jednotku misto 2 HVC
         if self.wallet.subtract_credits(cost):
             self.player_ship.fuel = min(self.player_ship.max_fuel, self.player_ship.fuel + amount)
             self.credits = self.wallet.get_balance()
@@ -2963,7 +2964,17 @@ class SpaceRangersGame:
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, SCREEN_HEIGHT // 2 - 155))
         fuel_info = self.font_medium.render(f"Aktualni palivo: {int(self.player_ship.fuel)}/{self.player_ship.max_fuel}", True, FUEL_COLOR)
         self.screen.blit(fuel_info, (SCREEN_WIDTH // 2 - fuel_info.get_width() // 2, SCREEN_HEIGHT // 2 - 110))
-        options = [("[1] 10 jednotek (20 HVC)", 10), ("[2] 25 jednotek (50 HVC)", 25), ("[3] 50 jednotek (100 HVC)", 50), ("[4] 100 jednotek (200 HVC)", 100)]
+        # Aktualni ceny paliva dle nove ekonomiky
+        fuel_cost_10 = round(10 * 0.02, 4)
+        fuel_cost_25 = round(25 * 0.02, 4)
+        fuel_cost_50 = round(50 * 0.02, 4)
+        fuel_cost_100 = round(100 * 0.02, 4)
+        options = [
+            (f"[1] 10 jednotek ({fuel_cost_10:.4f} HVC)", 10), 
+            (f"[2] 25 jednotek ({fuel_cost_25:.4f} HVC)", 25), 
+            (f"[3] 50 jednotek ({fuel_cost_50:.4f} HVC)", 50), 
+            (f"[4] 100 jednotek ({fuel_cost_100:.4f} HVC)", 100)
+        ]
         for i, (text, amount) in enumerate(options):
             rendered = self.font_medium.render(text, True, WHITE)
             self.screen.blit(rendered, (SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 60 + i * 40))
