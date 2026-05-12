@@ -583,6 +583,7 @@ class EnemyShip:
         self.drag = 0.96
         self.target_direction = random.uniform(0, 2 * math.pi)
         self.direction_change_timer = random.randint(60, 180)
+        self.damage = 10 if ship_type == "Pirate" else 20
 
     def update(self, target_x, target_y):
         dx = target_x - self.x
@@ -721,6 +722,9 @@ class SpaceRangersGame:
         self.trading_scroll = 0
         self.cargo_scroll = 0
         self.autosave_timer = 0
+        self.auto_battle = False
+        self.auto_battle_target = None
+        self.enemy_bullets = []
 
     def _generate_galaxy(self):
         return [
@@ -882,6 +886,10 @@ class SpaceRangersGame:
 
     def handle_game_events(self, event):
         if event.type == pygame.KEYDOWN:
+            if self.auto_battle and event.key == pygame.K_ESCAPE:
+                self.stop_auto_battle()
+                self.show_message("Auto-battle ukoncen!", 60)
+                return
             if event.key == pygame.K_ESCAPE:
                 self.disconnect_multiplayer()
                 self.state = "MENU"
@@ -907,6 +915,12 @@ class SpaceRangersGame:
             elif event.key == pygame.K_l:  # L for mining log/stats
                 if self.state == "GAME":
                     self.state = "MINING_LOG"
+            elif event.key == pygame.K_e:
+                if not self.auto_battle:
+                    self.start_auto_battle()
+                else:
+                    self.stop_auto_battle()
+                    self.show_message("Auto-battle ukoncen!", 60)
             elif event.key == pygame.K_p:
                 self.state = "SKILLS"
             elif event.key == pygame.K_SPACE:
@@ -1121,6 +1135,77 @@ class SpaceRangersGame:
             self.network = None
         self.multiplayer = False
         self.remote_players.clear()
+
+    def start_auto_battle(self):
+        closest = None
+        closest_dist = 350
+        for enemy in self.enemies:
+            dx = enemy.x - self.player_ship.x
+            dy = enemy.y - self.player_ship.y
+            dist = math.sqrt(dx*dx + dy*dy)
+            if dist < closest_dist:
+                closest_dist = dist
+                closest = enemy
+        if closest:
+            self.auto_battle = True
+            self.auto_battle_target = closest
+            self.show_message("AUTO-BATTLE: [ESC] ukoncit", 120)
+            return True
+        self.show_message("Zadny nepritele v dosahu!", 60)
+        return False
+
+    def stop_auto_battle(self):
+        self.auto_battle = False
+        self.auto_battle_target = None
+        self.enemy_bullets.clear()
+        self.zoom = 1.0
+
+    def update_auto_battle(self):
+        enemy = self.auto_battle_target
+        if not enemy or enemy not in self.enemies:
+            self.stop_auto_battle()
+            return
+        target_dir = math.atan2(enemy.y - self.player_ship.y, enemy.x - self.player_ship.x)
+        self.player_ship.rotate_to(target_dir)
+        enemy.direction = math.atan2(self.player_ship.y - enemy.y, self.player_ship.x - enemy.x)
+        self.fire_weapon()
+        enemy.shoot_timer -= 1
+        if enemy.shoot_timer <= 0:
+            enemy.shoot_timer = 50
+            bx = enemy.x + math.cos(enemy.direction) * 15
+            by = enemy.y + math.sin(enemy.direction) * 15
+            bvx = math.cos(enemy.direction) * 5
+            bvy = math.sin(enemy.direction) * 5
+            self.enemy_bullets.append({'x': bx, 'y': by, 'vx': bvx, 'vy': bvy, 'life': 60, 'damage': enemy.damage})
+        mid_x = (self.player_ship.x + enemy.x) / 2
+        mid_y = (self.player_ship.y + enemy.y) / 2
+        self.camera_x = mid_x
+        self.camera_y = mid_y
+        self.zoom = 0.5
+        dx = enemy.x - self.player_ship.x
+        dy = enemy.y - self.player_ship.y
+        if math.sqrt(dx*dx + dy*dy) > 400:
+            self.stop_auto_battle()
+            self.show_message("Boji jste se prilis vzdalili!", 90)
+
+    def player_respawn(self):
+        self.player_ship.hp = self.player_ship.max_hp
+        self.player_ship.shield = self.player_ship.max_shield
+        nearest = None
+        nearest_dist = float('inf')
+        for planet in self.planets:
+            if planet.station_type in ("PLANET", "DOCKY", "OBCHODNI_STANICE"):
+                dist = math.sqrt((planet.x - self.player_ship.x)**2 + (planet.y - self.player_ship.y)**2)
+                if dist < nearest_dist:
+                    nearest_dist = dist
+                    nearest = planet
+        if nearest:
+            self.player_ship.x = nearest.x + 50
+            self.player_ship.y = nearest.y + 50
+            self.camera_x = self.player_ship.x
+            self.camera_y = self.player_ship.y
+        self.show_message("Lod znicena! Obnoveno na nejblizsi stanici.", 180)
+        self.stop_auto_battle()
 
     def host_game(self):
         """Hostovat hru - spustit server + pripojit se"""
@@ -1441,23 +1526,26 @@ class SpaceRangersGame:
 
     def update_game(self):
         keys = pygame.key.get_pressed()
-        dx, dy = 0, 0
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            dy = -1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            dy = 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            dx = -1
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            dx = 1
-        if dx != 0 or dy != 0:
-            target_dir = math.atan2(dy, dx)
-            self.player_ship.rotate_to(target_dir)
-            self.player_ship.apply_thrust(self.player_ship.direction)
-            self.player_ship.fuel = max(0, self.player_ship.fuel - 0.008)
+        if self.auto_battle:
+            self.update_auto_battle()
+        else:
+            dx, dy = 0, 0
+            if keys[pygame.K_w] or keys[pygame.K_UP]:
+                dy = -1
+            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+                dy = 1
+            if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+                dx = -1
+            if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+                dx = 1
+            if dx != 0 or dy != 0:
+                target_dir = math.atan2(dy, dx)
+                self.player_ship.rotate_to(target_dir)
+                self.player_ship.apply_thrust(self.player_ship.direction)
+                self.player_ship.fuel = max(0, self.player_ship.fuel - 0.008)
+            self.camera_x = self.player_ship.x
+            self.camera_y = self.player_ship.y
         self.player_ship.update()
-        self.camera_x = self.player_ship.x
-        self.camera_y = self.player_ship.y
         self.player_ship.last_shot -= 1
         for planet in self.planets:
             dist = math.sqrt((self.player_ship.x - planet.x)**2 + (self.player_ship.y - planet.y)**2)
@@ -1475,7 +1563,15 @@ class SpaceRangersGame:
                 if dist > 100:
                     self.undock()
         for enemy in self.enemies[:]:
-            enemy.update(self.player_ship.x, self.player_ship.y)
+            if self.auto_battle and enemy is self.auto_battle_target:
+                continue
+            will_shoot = enemy.update(self.player_ship.x, self.player_ship.y)
+            if will_shoot:
+                bx = enemy.x + math.cos(enemy.direction) * 15
+                by = enemy.y + math.sin(enemy.direction) * 15
+                bvx = math.cos(enemy.direction) * 5
+                bvy = math.sin(enemy.direction) * 5
+                self.enemy_bullets.append({'x': bx, 'y': by, 'vx': bvx, 'vy': bvy, 'life': 60, 'damage': enemy.damage})
             if hasattr(enemy, 'should_remove') and enemy.should_remove:
                 self.enemies.remove(enemy)
         
@@ -1501,6 +1597,30 @@ class SpaceRangersGame:
                 self.enemies.append(enemy)
         
         self.update_bullets()
+        for bullet in self.enemy_bullets[:]:
+            bullet['x'] += bullet['vx']
+            bullet['y'] += bullet['vy']
+            bullet['life'] -= 1
+            if bullet['life'] <= 0:
+                self.enemy_bullets.remove(bullet)
+                continue
+            dx = bullet['x'] - self.player_ship.x
+            dy = bullet['y'] - self.player_ship.y
+            dist = math.sqrt(dx*dx + dy*dy)
+            if dist < 14:
+                damage = bullet['damage']
+                if self.player_ship.shield > 0:
+                    if self.player_ship.shield >= damage:
+                        self.player_ship.shield -= damage
+                        damage = 0
+                    else:
+                        damage -= self.player_ship.shield
+                        self.player_ship.shield = 0
+                self.player_ship.hp -= damage
+                if bullet in self.enemy_bullets:
+                    self.enemy_bullets.remove(bullet)
+                if self.player_ship.hp <= 0:
+                    self.player_respawn()
         now = time.time()
         self.floating_items = [it for it in self.floating_items if now - it["time"] < 300]
 
@@ -1849,6 +1969,9 @@ class SpaceRangersGame:
                     enemy.hp -= damage
                     if enemy.hp <= 0:
                         self.enemies.remove(enemy)
+                        if self.auto_battle and enemy is self.auto_battle_target:
+                            self.stop_auto_battle()
+                            self.show_message("Vitezstvi! Nepritel znicen!", 120)
                         self.player_ship.xp += 50
                         self._spawn_floating_item(enemy.x, enemy.y)
                         while self.player_ship.xp >= self.player_ship.xp_to_level:
@@ -1960,7 +2083,7 @@ class SpaceRangersGame:
         panel_x = radar_x
         panel_y = radar_y + RADAR_SIZE + 8
         panel_w = RADAR_SIZE
-        panel_h = 200
+        panel_h = 214
 
         panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
         panel.fill((5, 5, 20, 200))
@@ -2002,12 +2125,53 @@ class SpaceRangersGame:
             ("[Q] Ukoly", CYAN),
             ("[U] Upgrade", BRIGHT_BLUE),
             ("[J] Seber item", GREEN),
+            ("[E] Auto-battle", ORANGE),
             ("[SPACE] Strelba", BRIGHT_RED),
         ]
         for text, color in legend_items:
             rendered = self.font_tiny.render(text, True, color)
             self.screen.blit(rendered, (panel_x + 6, y_offset))
             y_offset += 14
+
+    def draw_auto_battle(self):
+        if not self.auto_battle or not self.auto_battle_target:
+            return
+        enemy = self.auto_battle_target
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 100))
+        self.screen.blit(overlay, (0, 0))
+        bar_w = 400
+        bar_h = 30
+        bar_x = SCREEN_WIDTH // 2 - bar_w // 2
+        enemy_bar_y = SCREEN_HEIGHT - 80
+        enemy_name = self.font_medium.render(f"ENEMY: {enemy.type}", True, BRIGHT_RED)
+        self.screen.blit(enemy_name, (bar_x, enemy_bar_y - 25))
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, enemy_bar_y, bar_w, bar_h))
+        hp_pct = max(0, enemy.hp / enemy.max_hp)
+        hp_color = GREEN if hp_pct > 0.5 else YELLOW if hp_pct > 0.25 else RED
+        pygame.draw.rect(self.screen, hp_color, (bar_x, enemy_bar_y, int(bar_w * hp_pct), bar_h))
+        pygame.draw.rect(self.screen, WHITE, (bar_x, enemy_bar_y, bar_w, bar_h), 2)
+        hp_text = self.font_small.render(f"{max(0, int(enemy.hp))}/{int(enemy.max_hp)}", True, WHITE)
+        self.screen.blit(hp_text, (bar_x + bar_w // 2 - hp_text.get_width() // 2, enemy_bar_y + 5))
+        player_bar_y = enemy_bar_y - 60
+        player_name = self.font_medium.render(f"PLAYER: {self.player_ship.name}", True, BRIGHT_GREEN)
+        self.screen.blit(player_name, (bar_x, player_bar_y - 25))
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, player_bar_y, bar_w, bar_h))
+        hp_pct = max(0, self.player_ship.hp / self.player_ship.max_hp)
+        hp_color = GREEN if hp_pct > 0.5 else YELLOW if hp_pct > 0.25 else RED
+        pygame.draw.rect(self.screen, hp_color, (bar_x, player_bar_y, int(bar_w * hp_pct), bar_h))
+        pygame.draw.rect(self.screen, WHITE, (bar_x, player_bar_y, bar_w, bar_h), 2)
+        hp_text = self.font_small.render(f"{max(0, int(self.player_ship.hp))}/{int(self.player_ship.max_hp)}", True, WHITE)
+        self.screen.blit(hp_text, (bar_x + bar_w // 2 - hp_text.get_width() // 2, player_bar_y + 5))
+        shield_bar_y = player_bar_y - 25
+        shield_pct = max(0, self.player_ship.shield / self.player_ship.max_shield)
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, shield_bar_y, bar_w, 12))
+        pygame.draw.rect(self.screen, BRIGHT_BLUE, (bar_x, shield_bar_y, int(bar_w * shield_pct), 12))
+        pygame.draw.rect(self.screen, WHITE, (bar_x, shield_bar_y, bar_w, 12), 1)
+        status_text = self.font_medium.render("AUTO-BATTLE", True, BRIGHT_RED)
+        self.screen.blit(status_text, (SCREEN_WIDTH // 2 - status_text.get_width() // 2, 20))
+        status_hint = self.font_tiny.render("[ESC] Exit | [E] Stop", True, GRAY)
+        self.screen.blit(status_hint, (SCREEN_WIDTH // 2 - status_hint.get_width() // 2, 45))
 
     def draw_menu(self):
         # Animovane pozadi
@@ -2181,6 +2345,14 @@ class SpaceRangersGame:
                 pygame.draw.circle(self.screen, (255, 255, 100), (screen_x, screen_y), max(2, int(3 * self.zoom)))
                 pygame.draw.circle(self.screen, (255, 255, 200), (screen_x, screen_y), max(1, int(2 * self.zoom)))
         
+        # Enemy strelby
+        for bullet in self.enemy_bullets:
+            screen_x = int((bullet['x'] - self.camera_x) * self.zoom + SCREEN_WIDTH // 2)
+            screen_y = int((bullet['y'] - self.camera_y) * self.zoom + SCREEN_HEIGHT // 2)
+            if 0 <= screen_x <= SCREEN_WIDTH and 0 <= screen_y <= SCREEN_HEIGHT:
+                pygame.draw.circle(self.screen, BRIGHT_RED, (screen_x, screen_y), max(2, int(3 * self.zoom)))
+                pygame.draw.circle(self.screen, (255, 100, 100), (screen_x, screen_y), max(1, int(2 * self.zoom)))
+        
         # Hracova lod
         self.player_ship.draw_in_space(self.screen, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2, self.zoom)
         
@@ -2192,10 +2364,11 @@ class SpaceRangersGame:
             self.screen.blit(shield_surface, (SCREEN_WIDTH // 2 - 30, SCREEN_HEIGHT // 2 - 30))
         
         # UI panely
-        self.draw_top_panel()
-        self.draw_game_controls()
-        self.draw_radar()
-        self.draw_mining_hud_and_legend()
+        if not self.auto_battle:
+            self.draw_top_panel()
+            self.draw_game_controls()
+            self.draw_radar()
+            self.draw_mining_hud_and_legend()
         
         # Strelba cooldown
         if self.player_ship.last_shot > 0:
@@ -2216,6 +2389,9 @@ class SpaceRangersGame:
         if self.player_ship.auto_pilot:
             auto_text = self.font_tiny.render("AUTO-PILOT ACTIVE", True, BRIGHT_GREEN)
             self.screen.blit(auto_text, (SCREEN_WIDTH // 2 - auto_text.get_width() // 2, 100))
+
+        if self.auto_battle:
+            self.draw_auto_battle()
 
     def draw_docked(self):
         if not self.docked_planet: return
